@@ -111,11 +111,10 @@ npm run init        # 建表 + 创建初始管理员
 npm start           # → http://127.0.0.1:8787
 ```
 
-或回到项目根目录用启动脚本（会自动加载 `.env`）：
+或回到项目根目录，在已放置 `.env` 的前提下直接运行：
 
 ```bash
-./start.sh          # Linux / macOS
-start.bat           # Windows
+node server/server.js      # 与 npm start 等价，自动读取项目根目录 .env
 ```
 
 ### 4. 自检（可选）
@@ -126,7 +125,7 @@ cd server && npm run selftest
 
 覆盖口令哈希、口令策略、会话令牌、SQL 参数化扫描、安全中间件等静态与单元检查，应输出 `26 通过 / 0 失败`。
 
-> **生产部署请勿使用上述临时启动方式**，请按《完整部署手册》配置 systemd 单元、MySQL 加固与 Nginx 反向代理。
+> **生产部署请勿使用上述临时启动方式**，请改用 systemd 单元托管进程，并做好 MySQL 加固与 Nginx 反向代理（相关配置不在本仓库范围内）。
 
 ## 目录结构
 
@@ -135,20 +134,15 @@ cd server && npm run selftest
 ├── index.html                      # 前端入口
 ├── app.js                          # 前端逻辑（视图 + 交互）
 ├── styles.css                      # 样式（双主题）
-├── start.sh / start.bat            # 启动脚本
 ├── .env.example                    # 环境变量模板（复制为 .env）
 ├── LICENSE                         # PolyForm Noncommercial 1.0.0
-├── server/
-│   ├── server.js                   # 后端主程序（全部 REST API）
-│   ├── auth.js                     # 口令哈希 / 会话 / 令牌
-│   ├── db.js                       # 数据库连接
-│   ├── schema.sql                  # 表结构
-│   ├── selftest.js                 # 安全逻辑自检
-│   └── .env.example                # 另一份环境变量模板
-├── 完整部署手册-从零到上线.md      # ★ 部署唯一权威来源
-├── 管理员操作手册.md               # 日常操作 SOP
-├── 发布手册.md                     # 平台单独快速部署
-└── 项目介绍.md                     # 功能与技术说明
+└── server/
+    ├── server.js                   # 后端主程序（全部 REST API）
+    ├── auth.js                     # 口令哈希 / 会话 / 令牌
+    ├── db.js                       # 数据库连接
+    ├── schema.sql                  # 表结构
+    ├── selftest.js                 # 安全逻辑自检
+    └── .env.example                # 另一份环境变量模板
 ```
 
 ## 网关对接接口
@@ -193,20 +187,16 @@ cd server && npm run selftest
 
 **4. 本项目是控制面，不是数据面**
 
-平台负责密钥 / 授权 / 审计，**不含流量转发代码**。真正生效的访问控制需要网关侧 `vpn-sync` / `vpn-logship` 配合，详见[部署手册](完整部署手册-从零到上线.md)。
+平台负责密钥 / 授权 / 审计，**不含流量转发代码**。真正生效的访问控制需要网关侧 `vpn-sync` / `vpn-logship` 配合（相关脚本与 systemd 单元需自行准备，本仓库不随附完整部署手册）。
 
 **5. HTTPS 部署注意**
 
-经 Nginx 终止 TLS 时，必须设置 `COOKIE_SECURE=1` 并传递 `X-Forwarded-For`，否则会出现「登录后一刷新就掉线」或「审计来源 IP 全部失真」。详见部署手册第 6.5 节。
+经 Nginx 终止 TLS 时，必须设置 `COOKIE_SECURE=1` 并传递 `X-Forwarded-For`，否则会出现「登录后一刷新就掉线」或「审计来源 IP 全部失真」。
 
 ## 文档索引
 
-| 文档 | 用途 |
-| --- | --- |
-| [完整部署手册-从零到上线.md](完整部署手册-从零到上线.md) | **部署唯一权威来源**：WireGuard 网关、nftables 策略、MySQL、平台、Nginx 反代、systemd、验收清单、FAQ |
-| [管理员操作手册.md](管理员操作手册.md) | 面向管理员：权限矩阵、日常操作、6 个典型 SOP、常见报错 |
-| [发布手册.md](发布手册.md) | 仅部署平台部分的精简版 |
-| [项目介绍.md](项目介绍.md) | 功能清单、技术架构、重要边界与已知缺口 |
+本仓库仅包含平台源码、本文件与 `LICENSE`。详细的部署 / 管理员 / 发布手册**不随仓库分发**；
+部署相关的关键步骤与注意事项已浓缩在上方「快速开始」与「⚠️ 部署前必读」两节中。
 
 ## 商标声明
 
