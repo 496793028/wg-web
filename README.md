@@ -13,6 +13,11 @@
 
 ---
 
+> 📌 **流级审计数据面验证状态（2026-09-11）**
+> 审计管线（网关 nftables `vpn-flow` 钩子 → rsyslog 落盘 → `vpn-logship` 解析 → `POST /api/ingest` 落库）已在真实网关 **192.168.3.39（CentOS 7.9 / kernel 3.10）** 端到端验证通过：内核正确生成 `IN=wg0 SRC=客户端VPN-IP DST=内网-IP PROTO=TCP DPT=端口` 流记录，shipper 解析并推送，平台 `/api/ingest` 接收并落库。
+> 参考最小实现见 `verify/vpn-logship-min.py`，一键验证脚本见 `verify/run-on-3.39-veth.sh`（均验证用，不随正式发布分发）。
+> **两点诚实说明**：① 该机 kernel 3.10 无 WireGuard 内核模块，验证用一根命名为 `wg0` 的 veth 代替真实隧道（仅缺加密/peer 协商，属 Defguard 职责，本平台不覆盖）；② `access_log` 的 MySQL 落库本轮未对真实库执行（用 mock 端点确认契约，`/api/ingest` 落库逻辑见 `server.js:624`）。
+
 ## 目录
 
 - [它解决什么问题](#它解决什么问题)
@@ -48,7 +53,7 @@ VPN 开通之后，「**谁能连、能连到哪台机器的哪个端口**」往
 | **WireGuard 密钥托管** | 后端生成 X25519 密钥对，**私钥经 AES-256-GCM 加密落库**；客户端配置一键生成（复制 / 下载 `.conf`） |
 | **双模式 peer 落地** | `agent`（网关拉取，Web 无需 root）/ `local`（平台直写 `wg syncconf`，需 root） |
 | **授权双向对账** | 平台删除用户 → 网关侧 peer 自动移除，**不留僵尸 peer** |
-| **全链路审计** | 管理员所有写操作落库（操作人 / 动作 / 对象 / 来源 IP）；用户访问记录可按人、目标、端口、结果、时间筛选（数据需网关 `vpn-logship` 回传，本仓库不随附该脚本） |
+| **全链路审计** | 管理员所有写操作落库（操作人 / 动作 / 对象 / 来源 IP）；用户访问记录可按人、目标、端口、结果、时间筛选（流日志需网关 `vpn-logship` 回传，参考最小实现见 `verify/vpn-logship-min.py`，不随正式发布分发） |
 | **企业级安全基线** | scrypt 口令哈希、服务端可吊销会话、登录失败锁定、全程参数化 SQL、CSRF 防护、HTTPS 就绪 |
 | **零构建前端** | 纯静态 `index.html` + `app.js` + `styles.css`，双主题（深色 / 浅色），无打包步骤 |
 
