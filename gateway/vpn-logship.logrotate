@@ -1,0 +1,18 @@
+# /etc/logrotate.d/vpn-flow
+# 注意：必须用 copytruncate —— vpn-logship 是按偏移跟随读取该文件，
+# copytruncate 会把文件截断为 0，采集器检测到 size<offset 会自动重置偏移从头读，
+# 不会丢日志也不会读到重复（偏移随每次读取落库）。
+/var/log/vpn-flow.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0640 root root
+    postrotate
+        # 触发 logship 尽快重读（无需 kill，下一轮 poll 即生效）
+        /bin/true
+    endscript
+}

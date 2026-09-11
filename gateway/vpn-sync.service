@@ -1,0 +1,32 @@
+# vpn-sync 网关执行面 agent —— systemd 常驻服务
+# 安装：
+#   install -m 0755 vpn-sync.py /usr/local/bin/vpn-sync.py
+#   install -m 0644 vpn-sync.service /etc/systemd/system/vpn-sync.service
+#   install -m 0644 vpn-sync.env.example /etc/vpn-sync.env   # 填好 token/base 后 chmod 600
+#   systemctl daemon-reload && systemctl enable --now vpn-sync
+[Unit]
+Description=VPN 管控平台网关执行面同步（peers -> wg, grants -> nftables）
+After=network-online.target
+Wants=network-online.target
+# 与 nftables.service 同机时确保规则下发在其之后
+After=nftables.service
+
+[Service]
+Type=simple
+# 需要 root：wg syncconf / nft 均为特权操作
+User=root
+EnvironmentFile=/etc/vpn-sync.env
+ExecStart=/usr/local/bin/vpn-sync.py --interval 30
+Restart=always
+RestartSec=5
+# 收紧权限
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+ProtectSystem=full
+# 日志走 journald，便于 `journalctl -u vpn-sync -f`
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

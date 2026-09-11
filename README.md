@@ -1,6 +1,6 @@
 # VPN 权限管控平台
 
-> 基于 **WireGuard** 的企业内网 VPN 权限管控系统 —— **nftables 逐用户精细放行 + Web 管理界面 + 操作与访问审计（流级审计数据面待真机验证）**
+> 基于 **WireGuard** 的企业内网 VPN 权限管控系统 —— **nftables 逐用户精细放行 + Web 管理界面 + 操作与访问审计**
 
 ![License](https://img.shields.io/badge/License-CC%20BY--NC--ND%204.0-lightgrey.svg)
 ![Node](https://img.shields.io/badge/Node-%3E%3D18-339933.svg)
@@ -13,10 +13,15 @@
 
 ---
 
-> 📌 **流级审计数据面验证状态（2026-09-11）**
-> 审计管线（网关 nftables `vpn-flow` 钩子 → rsyslog 落盘 → `vpn-logship` 解析 → `POST /api/ingest` 落库）已在真实网关 **192.168.3.39（CentOS 7.9 / kernel 3.10）** 端到端验证通过：内核正确生成 `IN=wg0 SRC=客户端VPN-IP DST=内网-IP PROTO=TCP DPT=端口` 流记录，shipper 解析并推送，平台 `/api/ingest` 接收并落库。
-> 参考最小实现见 `verify/vpn-logship-min.py`，一键验证脚本见 `verify/run-on-3.39-veth.sh`（均验证用，不随正式发布分发）。
-> **两点诚实说明**：① 该机 kernel 3.10 无 WireGuard 内核模块，验证用一根命名为 `wg0` 的 veth 代替真实隧道（仅缺加密/peer 协商，属 Defguard 职责，本平台不覆盖）；② `access_log` 的 MySQL 落库本轮未对真实库执行（用 mock 端点确认契约，`/api/ingest` 落库逻辑见 `server.js:624`）。
+> 📌 **验证状态（2026-09-11）**
+>
+> - **管控执行面**：网关 agent `gateway/vpn-sync.py` 依据平台下发的授权，生成 nftables 规则（`iifname "wg0"` **默认拒绝** + 按 `源VPN IP → 目的IP:端口/协议` 放行）并 `wg syncconf` 热加载 peer。已在真实网关 **192.168.3.39（CentOS 7.9 / kernel 3.10 / nftables v0.8）** 用 netns 隔离验证：**授权目的地可达、未授权目的地被拦截**（真流量穿过 forward 链）。
+> - **流级审计数据面**：nftables 记账日志（前缀 `vpn-flow ALLOW` / `vpn-flow DENY`）→ rsyslog 落盘 → `vpn-logship` 解析 → `POST /api/ingest`。已用真实内核日志行闭合验证到接口契约（含 token 鉴权）。
+> - **平台 + 数据库**：真实 `server.js` 已直连真实 MySQL（8.0）跑通登录 / RBAC / CRUD / `POST /api/ingest` 落库 / `/api/logs` 查询与导出 / 审计查询。
+> - **真实 WireGuard 隧道**：3.39 无内核模块，改用 **wireguard-go（用户态）** 在 netns 内验证 —— **真实握手成功**、隧道内已授权目的可达、未授权被 nftables 拦、主机服务零影响。
+> - **仍未验证**：内核态 WireGuard 与真实网卡性能（本轮 111 MB/s 是 veth 上界）、HTTPS/TLS、多用户规模、shipper 在网关长跑。
+>
+> 验证记录见 `verify/管控面验证记录.md`；待办与所需环境见 `verify/真机验证-需用户环境.md`。
 
 ## 目录
 

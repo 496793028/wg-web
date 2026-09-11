@@ -1,0 +1,29 @@
+# vpn-logship 流日志回传器 —— systemd 常驻服务（持久化缓冲 + 失败重试）
+# 安装：
+#   install -m 0755 vpn-logship.py /usr/local/bin/vpn-logship.py
+#   install -m 0644 vpn-logship.service /etc/systemd/system/vpn-logship.service
+#   install -m 0644 vpn-logship.logrotate /etc/logrotate.d/vpn-flow
+#   systemctl daemon-reload && systemctl enable --now vpn-logship
+[Unit]
+Description=VPN 流日志回传器（读 nftables 记账日志 -> POST /api/ingest）
+After=network-online.target rsyslog.service
+Wants=network-online.target
+After=rsyslog.service
+
+[Service]
+Type=simple
+User=root
+EnvironmentFile=/etc/vpn-sync.env
+# 参数均可用环境变量覆盖（INGEST_TOKEN / VPN_BASE / VPN_FLOW_LOG / VPN_IP2NAME / VPN_LOGSTATE）
+ExecStart=/usr/local/bin/vpn-logship.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ReadWritePaths=/var/lib/vpn-logship /var/log
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,30 @@
+# VPN 管控平台 Web 服务 —— systemd 单元（Node 版本）
+# 安装：
+#   cd server && npm install --omit=dev
+#   cp .env.example .env && vi .env        # 填 DB / INGEST_TOKEN / WG_* 等
+#   install -m 0644 ../deploy/vpn-web.service /etc/systemd/system/vpn-web.service
+#   systemctl daemon-reload && systemctl enable --now vpn-web
+[Unit]
+Description=VPN 权限管控平台 Web（Node）
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 建议用专用非 root 用户运行
+User=vpnweb
+Group=vpnweb
+WorkingDirectory=/opt/vpn-web/server
+# Node >= 20.6 支持 --env-file；也可用 EnvironmentFile=/opt/vpn-web/server/.env
+ExecStart=/usr/bin/node --env-file=/opt/vpn-web/server/.env /opt/vpn-web/server/server.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=full
+# 该服务需要写 uploads/ 与 .wgkey
+ReadWritePaths=/opt/vpn-web/server
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
