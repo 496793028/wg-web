@@ -1,0 +1,22 @@
+{
+  "name": "vpn-control-server",
+  "version": "1.0.0",
+  "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "author": "sjy",
+  "description": "VPN 权限管控平台后端（Express + MySQL，企业级安全基线）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "init": "node server.js --init",
+    "selftest": "node selftest.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mysql2": "^3.9.7"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
+  }
+}

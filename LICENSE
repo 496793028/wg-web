@@ -1,0 +1,181 @@
+VPN 权限管控平台（wireguard-vpn-access-control-web）
+Copyright (c) 2026 sjy
+
+Required Notice: Copyright (c) 2026 sjy — VPN 权限管控平台
+(https://github.com/496793028/wireguard-vpn-access-control-web)
+
+本作品采用「PolyForm 非商业性使用许可 1.0.0」授权。
+This work is licensed under the PolyForm Noncommercial License 1.0.0.
+
+WireGuard® is a registered trademark of Jason A. Donenfeld.
+This project is an independent third-party work, and is not affiliated with, sponsored by,
+or endorsed by the WireGuard project, Jason A. Donenfeld, zx2c4, or Edge Security LLC.
+The name "WireGuard" is used solely to describe technical compatibility (fair use).
+
+WireGuard® 是 Jason A. Donenfeld 的注册商标。本项目为独立第三方项目，
+与 WireGuard 项目及上述主体无任何隶属、赞助或背书关系；名称仅用于说明技术兼容性。
+
+-------------------------------------------------------------------------------
+许可要点（仅为便于理解的摘要，不构成法律条款；以下方英文法律文本为准）
+Summary (for convenience only; the English legal text below governs):
+
+  ✅ 允许「使用」Use
+     任何**非商业**目的均属许可目的。包括个人学习 / 研究 / 实验 / 测试，
+     以及慈善机构、教育机构、公共研究机构、公共安全或卫生机构、
+     环境保护组织、政府机构的使用（不论其资金来源）。
+
+  ✅ 允许「分发」Distribution
+     可分发本软件的副本 —— **包括经修改的版本**。
+
+  ✅ 允许「修改」Changes and New Works
+     可修改本软件，并可基于本软件创作新作品。
+
+  📌 要求「署名」Notices
+     必须确保每一位接收者同时获得本许可条款（或其链接），
+     以及所有以 `Required Notice:` 开头的明文行。
+
+  ❌ 禁止「商业性使用」Noncommercial
+     不得将本软件用于商业目的。
+
+  附加保障条款：
+     - 专利许可 Patent License —— 许可人授予使用本软件所需的专利许可。
+     - 防御性终止 Patent Defense —— 若你书面主张本软件侵犯专利，
+       你所获的专利许可立即终止。
+     - 免责 No Liability —— 本软件按「现状」提供，不附带任何担保。
+
+  协议全文 / Full text:
+     https://polyformproject.org/licenses/noncommercial/1.0.0
+
+===============================================================================
+
+# PolyForm Noncommercial License 1.0.0
+
+<https://polyformproject.org/licenses/noncommercial/1.0.0>
+
+## Acceptance
+
+In order to get any license under these terms, you must agree
+to them as both strict obligations and conditions to all
+your licenses.
+
+## Copyright License
+
+The licensor grants you a copyright license for the
+software to do everything you might do with the software
+that would otherwise infringe the licensor's copyright
+in it for any permitted purpose.  However, you may
+only distribute the software according to [Distribution
+License](#distribution-license) and make changes or new works
+based on the software according to [Changes and New Works
+License](#changes-and-new-works-license).
+
+## Distribution License
+
+The licensor grants you an additional copyright license
+to distribute copies of the software.  Your license
+to distribute covers distributing the software with
+changes and new works permitted by [Changes and New Works
+License](#changes-and-new-works-license).
+
+## Notices
+
+You must ensure that anyone who gets a copy of any part of
+the software from you also gets a copy of these terms or the
+URL for them above, as well as copies of any plain-text lines
+beginning with `Required Notice:` that the licensor provided
+with the software.  For example:
+
+> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
+
+## Changes and New Works License
+
+The licensor grants you an additional copyright license to
+make changes and new works based on the software for any
+permitted purpose.
+
+## Patent License
+
+The licensor grants you a patent license for the software that
+covers patent claims the licensor can license, or becomes able
+to license, that you would infringe by using the software.
+
+## Noncommercial Purposes
+
+Any noncommercial purpose is a permitted purpose.
+
+## Personal Uses
+
+Personal use for research, experiment, and testing for
+the benefit of public knowledge, personal study, private
+entertainment, hobby projects, amateur pursuits, or religious
+observance, without any anticipated commercial application,
+is use for a permitted purpose.
+
+## Noncommercial Organizations
+
+Use by any charitable organization, educational institution,
+public research organization, public safety or health
+organization, environmental protection organization,
+or government institution is use for a permitted purpose
+regardless of the source of funding or obligations resulting
+from the funding.
+
+## Fair Use
+
+You may have "fair use" rights for the software under the
+law. These terms do not limit them.
+
+## No Other Rights
+
+These terms do not allow you to sublicense or transfer any of
+your licenses to anyone else, or prevent the licensor from
+granting licenses to anyone else.  These terms do not imply
+any other licenses.
+
+## Patent Defense
+
+If you make any written claim that the software infringes or
+contributes to infringement of any patent, your patent license
+for the software granted under these terms ends immediately. If
+your company makes such a claim, your patent license ends
+immediately for work on behalf of your company.
+
+## Violations
+
+The first time you are notified in writing that you have
+violated any of these terms, or done anything with the software
+not covered by your licenses, your licenses can nonetheless
+continue if you come into full compliance with these terms,
+and take practical steps to correct past violations, within
+32 days of receiving notice.  Otherwise, all your licenses
+end immediately.
+
+## No Liability
+
+***As far as the law allows, the software comes as is, without
+any warranty or condition, and the licensor will not be liable
+to you for any damages arising out of these terms or the use
+or nature of the software, under any kind of legal claim.***
+
+## Definitions
+
+The **licensor** is the individual or entity offering these
+terms, and the **software** is the software the licensor makes
+available under these terms.
+
+**You** refers to the individual or entity agreeing to these
+terms.
+
+**Your company** is any legal entity, sole proprietorship,
+or other kind of organization that you work for, plus all
+organizations that have control over, are under the control of,
+or are under common control with that organization.  **Control**
+means ownership of substantially all the assets of an entity,
+or the power to direct its management and policies by vote,
+contract, or otherwise.  Control can be direct or indirect.
+
+**Your licenses** are all the licenses granted to you for the
+software under these terms.
+
+**Use** means anything you do with the software requiring one
+of your licenses.

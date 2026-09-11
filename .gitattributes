@@ -1,0 +1,38 @@
+# =====================================================================
+#  换行符统一为 LF
+#  原因：start.sh 与手册内嵌的 bash 脚本一旦被转成 CRLF，
+#        在 Linux 上执行会报 `bad interpreter` / `$'\r': command not found`
+# =====================================================================
+* text=auto eol=lf
+
+# ---- Shell / 脚本：强制 LF，否则 Linux 无法执行 ----
+*.sh    text eol=lf
+*.bash  text eol=lf
+
+# ---- Windows 批处理：必须 CRLF ----
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# ---- 源码与文档：LF ----
+*.js    text eol=lf
+*.json  text eol=lf
+*.sql   text eol=lf
+*.md    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# ---- 二进制：不做换行符转换 ----
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.gif   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.tar   binary
+*.gz    binary
+*.zip   binary
+*.rar   binary

@@ -1,0 +1,52 @@
+# =====================================================================
+#  VPN 权限管控平台 — 提交忽略规则
+#  原则：真实凭证、运行时数据、依赖、构建产物一律不入库
+# =====================================================================
+
+# ---- 环境变量文件（含数据库口令 / INGEST_TOKEN / WG_KEY_SECRET）----
+.env
+.env.*
+!.env.example
+server/.env
+server/.env.*
+!server/.env.example
+
+# ---- WireGuard 私钥加密主密钥（丢失将导致历史私钥无法解密）----
+server/.wgkey
+*.wgkey
+
+# ---- 运行时数据：用户上传的头像 ----
+# 注意用 /* 而非目录本身：忽略整个目录后 git 不会进入其中，! 反选将失效
+server/uploads/*
+!server/uploads/.gitkeep
+
+# ---- 依赖 ----
+node_modules/
+server/node_modules/
+
+# ---- 日志与调试产物 ----
+*.log
+npm-debug.log*
+yarn-error.log*
+_srv.log
+
+# ---- 归档 / 发布包（可由源码重新生成，且可能裹入敏感文件）----
+*.tar.gz
+*.tgz
+*.rar
+*.zip
+*.7z
+
+# ---- 编辑器 / 操作系统 ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Python 临时产物（手册内嵌脚本校验时产生）----
+__pycache__/
+*.pyc
+_pychk.py
+_wgcheck.py
