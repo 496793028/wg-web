@@ -1,6 +1,6 @@
 # VPN 权限管控平台
 
-> 基于 **WireGuard** 的企业内网 VPN 权限管控系统 —— **nftables 逐用户精细放行 + Web 管理界面 + 全量操作审计**
+> 基于 **WireGuard** 的企业内网 VPN 权限管控系统 —— **nftables 逐用户精细放行 + Web 管理界面 + 操作与访问审计（流级审计数据面待真机验证）**
 
 ![License](https://img.shields.io/badge/License-CC%20BY--NC--ND%204.0-lightgrey.svg)
 ![Node](https://img.shields.io/badge/Node-%3E%3D18-339933.svg)
@@ -48,7 +48,7 @@ VPN 开通之后，「**谁能连、能连到哪台机器的哪个端口**」往
 | **WireGuard 密钥托管** | 后端生成 X25519 密钥对，**私钥经 AES-256-GCM 加密落库**；客户端配置一键生成（复制 / 下载 `.conf`） |
 | **双模式 peer 落地** | `agent`（网关拉取，Web 无需 root）/ `local`（平台直写 `wg syncconf`，需 root） |
 | **授权双向对账** | 平台删除用户 → 网关侧 peer 自动移除，**不留僵尸 peer** |
-| **全链路审计** | 管理员所有写操作落库（操作人 / 动作 / 对象 / 来源 IP）；用户访问记录可按人、目标、端口、结果、时间筛选 |
+| **全链路审计** | 管理员所有写操作落库（操作人 / 动作 / 对象 / 来源 IP）；用户访问记录可按人、目标、端口、结果、时间筛选（数据需网关 `vpn-logship` 回传，本仓库不随附该脚本） |
 | **企业级安全基线** | scrypt 口令哈希、服务端可吊销会话、登录失败锁定、全程参数化 SQL、CSRF 防护、HTTPS 就绪 |
 | **零构建前端** | 纯静态 `index.html` + `app.js` + `styles.css`，双主题（深色 / 浅色），无打包步骤 |
 
@@ -65,7 +65,7 @@ VPN 开通之后，「**谁能连、能连到哪台机器的哪个端口**」往
 ```
 
 - **① 授权下发**：网关上 `vpn-sync` 定时拉 `GET /api/gateway/grants`，把「谁能访问哪些 IP:端口」渲染成 nftables 规则并重载。
-- **② 日志回传**：网关上 `vpn-logship` 读 `/var/log/vpn-flow.log`，解析后 `POST /api/ingest` 推回平台。
+- **② 日志回传**：网关上需自行部署 `vpn-logship`（读 `/var/log/vpn-flow.log`，解析后 `POST /api/ingest` 推回平台；本仓库不随附该脚本与 systemd 单元）。
 
 **信任锚**：WireGuard 在 hub 侧强制「用某 peer 公钥解密的包，源地址必须匹配该 peer 的 `AllowedIPs`」。因此网关上看到 `SRC=10.100.0.11` 就**确定是那个人** —— per-user 权限与审计由此成立。
 

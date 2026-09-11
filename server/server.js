@@ -727,16 +727,10 @@ async function initDb() {
       if (refId) await q(`INSERT INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [r.insertId, t, refId]);
     }
   }
-  const dsts = { '10.0.10.5': 443, '10.0.20.5': 3306, '10.0.10.20': 3389, '10.0.30.10': 443, '10.0.10.7': 8080, '10.0.30.11': 22 };
-  const keys = Object.keys(dsts);
-  for (let i = 0; i < 300; i++) {
-    const v = users[Math.floor(Math.random() * users.length)];
-    const dst = keys[Math.floor(Math.random() * keys.length)];
-    const ts = new Date(Date.now() - Math.random() * 7 * 864e5).toISOString().slice(0, 19).replace('T', ' ');
-    await q(`INSERT INTO access_log (ts, user_name, src_ip, dst_ip, dst_port, proto, action) VALUES (?,?,?,?,?,?,?)`,
-      [ts, v[0], v[1], dst, dsts[dst], 'TCP', Math.random() > 0.15 ? 'ALLOW' : 'DENY']);
-  }
-  console.log('[init] 演示数据已写入');
+  /* 注意：演示模式只写入「配置类」数据（目的地池 / 包 / 账号 / 授权），
+     不写入 access_log 审计行。审计表必须只反映真实网关回传的流日志，
+     伪造审计记录会直接破坏「可溯源」这一核心承诺。若需在真机验证流级审计，
+     请改用仓库 verify/ 目录下的端到端方案，而不是用假数据填充审计表。 */
 }
 
 (async () => {
