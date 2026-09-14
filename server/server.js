@@ -130,7 +130,8 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
 
   const ip = ipOf(req);
   const acct = await q1(`SELECT * FROM sys_account WHERE login=?`, [login]);
-  if (acct && acct.locked_until && new Date(acct.locked_until) > new Date())
+  // 管理员账号不参与失败锁定（避免被锁在门外）；失败仍会记录 login_fail 审计
+  if (acct && acct.role !== 'admin' && acct.locked_until && new Date(acct.locked_until) > new Date())
     return res.status(423).json({ error: '账号已锁定，请稍后再试或联系管理员' });
   // 口令未设置（首次部署未配 ADMIN_INIT_PWD）时给出明确指引，而不是笼统的「密码错误」
   if (acct && !acct.pwd_hash)
@@ -138,10 +139,13 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
 
   if (!acct || acct.status !== 1 || !A.pwdVerify(pwd, acct.pwd_hash, acct.pwd_salt)) {
     if (acct) {
-      const n = (acct.failed_attempts || 0) + 1;
-      await q(`UPDATE sys_account SET failed_attempts=? ${n >= 5 ? `, locked_until=${D.sql.plusMinutes('15')}` : ''} WHERE id=?`, [n, acct.id]);
+      const admin = acct.role === 'admin';        // 管理员账号不参与失败锁定
+      if (!admin) {
+        const n = (acct.failed_attempts || 0) + 1;
+        await q(`UPDATE sys_account SET failed_attempts=? ${n >= 5 ? `, locked_until=${D.sql.plusMinutes('15')}` : ''} WHERE id=?`, [n, acct.id]);
+        if (n >= 5) return res.status(429).json({ error: '失败次数过多，账号已锁定 15 分钟' });
+      }
       await q(`INSERT INTO login_fail (ts, login, ip, reason) VALUES (${D.sql.now3},?,?,?)`, [login, ip, 'password']).catch(() => {});
-      if (n >= 5) return res.status(429).json({ error: '失败次数过多，账号已锁定 15 分钟' });
     }
     return res.status(401).json({ error: '账号或密码错误' });
   }
