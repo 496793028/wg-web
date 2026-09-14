@@ -13,13 +13,14 @@
 
 ---
 
-> 📌 **验证状态（2026-09-11）**
+> 📌 **验证状态（2026-09-14 更新）**
 >
-> - **管控执行面**：网关 agent `gateway/vpn-sync.py` 依据平台下发的授权，生成 nftables 规则（`iifname "wg0"` **默认拒绝** + 按 `源VPN IP → 目的IP:端口/协议` 放行）并 `wg syncconf` 热加载 peer。已在真实网关 **192.168.3.39（CentOS 7.9 / kernel 3.10 / nftables v0.8）** 用 netns 隔离验证：**授权目的地可达、未授权目的地被拦截**（真流量穿过 forward 链）。
+> - **端到端已打通**：在真实网关 **192.168.3.70（Rocky Linux 10 · 内核态 WireGuard · firewalld + Docker）** 完成全链路实测 —— netns 内起真实 WireGuard 客户端连本机 `51820`：**握手成功**；授权目标（`192.168.3.27:100/TCP`）被 **ALLOW**、未授权端口与 ICMP 被 **DENY**；临时授权一个开放端口后**连接成功**，抓包见完整三次握手且源地址被 **masquerade** 成网关本机 IP（已收到对端 SSH banner）。此前在 192.168.3.39（CentOS 7.9 + 用户态 wireguard-go）做过控制面验证。
+> - **管控执行面**：网关 agent `gateway/vpn-sync.py` 依据平台下发的授权，生成 nftables 规则（`iifname "wg0"` **默认拒绝** + 按 `源VPN IP → 目的IP:端口/协议` 放行）并 `wg syncconf` 热加载 peer。
+> - **数据库后端（本次新增）**：**MySQL（默认）与 SQLite 双后端**均可运行（`.env` 里 `DB_DRIVER` 一行切换，差异封装在 `server/dialects/`）。SQLite 端到端 **30/30 通过**、MySQL 对真实库只读校验 **20/20 通过**；生产环境已切换至 SQLite 并完成存量数据迁移（两端**逐表行数一致**）。
 > - **流级审计数据面**：nftables 记账日志（前缀 `vpn-flow ALLOW` / `vpn-flow DENY`）→ rsyslog 落盘 → `vpn-logship` 解析 → `POST /api/ingest`。已用真实内核日志行闭合验证到接口契约（含 token 鉴权）。
-> - **平台 + 数据库**：真实 `server.js` 已直连真实 MySQL（8.0）跑通登录 / RBAC / CRUD / `POST /api/ingest` 落库 / `/api/logs` 查询与导出 / 审计查询。
-> - **真实 WireGuard 隧道**：3.39 无内核模块，改用 **wireguard-go（用户态）** 在 netns 内验证 —— **真实握手成功**、隧道内已授权目的可达、未授权被 nftables 拦、主机服务零影响。
-> - **仍未验证**：内核态 WireGuard 与真实网卡性能（本轮 111 MB/s 是 veth 上界）、HTTPS/TLS、多用户规模、shipper 在网关长跑。
+> - **平台 + 数据库**：真实 `server.js` 已跑通登录 / RBAC / CRUD / `POST /api/ingest` 落库 / `/api/logs` 查询与导出 / 审计查询。
+> - **仍未验证**：HTTPS/TLS、多用户规模并发、shipper 在网关长期运行、公网入口（需在路由器做 `UDP 51820` 端口转发）。
 >
 > 验证记录见 `verify/管控面验证记录.md`；待办与所需环境见 `verify/真机验证-需用户环境.md`。
 
