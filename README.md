@@ -59,6 +59,7 @@ VPN 开通之后，「**谁能连、能连到哪台机器的哪个端口**」往
 | **双模式 peer 落地** | `agent`（网关拉取，Web 无需 root）/ `local`（平台直写 `wg syncconf`，需 root） |
 | **授权双向对账** | 平台删除用户 → 网关侧 peer 自动移除，**不留僵尸 peer** |
 | **全链路审计** | 管理员所有写操作落库（操作人 / 动作 / 对象 / 来源 IP）；用户访问记录可按人、目标、端口、结果、时间筛选（流日志需网关 `vpn-logship` 回传，参考最小实现见 `verify/vpn-logship-min.py`，不随正式发布分发） |
+| **数据库可切换** | `DB_DRIVER=mysql`（默认，独立/远程库）或 `sqlite`（单机单文件、零依赖，用 Node 内置 `node:sqlite`）；业务代码只依赖方言层，不含任何库专有语法 |
 | **企业级安全基线** | scrypt 口令哈希、服务端可吊销会话、登录失败锁定、全程参数化 SQL、CSRF 防护、HTTPS 就绪 |
 | **零构建前端** | 纯静态 `index.html` + `app.js` + `styles.css`，双主题（深色 / 浅色），无打包步骤 |
 
@@ -179,7 +180,9 @@ cd server && npm run selftest
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `ADMIN_INIT_PWD` | 空 → 走网页初始化 | 若填写，需 ≥6 位且含大小写字母与数字 |
-| `DB_PASS` | 空 | 数据库口令，**务必设置** |
+| `DB_DRIVER` | `mysql` | `mysql`（默认，可独立部署）或 `sqlite`（单机零依赖） |
+| `DB_FILE` | `server/data/vpn_ctrl.sqlite` | 仅 `DB_DRIVER=sqlite` 时使用，自动建目录 |
+| `DB_PASS` | 空 | 数据库口令，**务必设置**（仅 mysql） |
 | `INGEST_TOKEN` | 空 | 网关推送鉴权，**生产必须设置** |
 | `WG_KEY_SECRET` | 空 | 私钥加密主密钥 |
 

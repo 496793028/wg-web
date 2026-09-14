@@ -20,6 +20,12 @@ server/.wgkey
 server/uploads/*
 !server/uploads/.gitkeep
 
+# ---- 运行时数据：SQLite 库文件（DB_DRIVER=sqlite 时产生）----
+server/data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
 # ---- 依赖 ----
 node_modules/
 server/node_modules/

@@ -16,39 +16,20 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const express = require('express');
-const mysql = require('mysql2/promise');
 const A = require('./auth.js');
+const D = require('./dialects');          // 数据库方言（DB_DRIVER=mysql|sqlite）
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = path.join(__dirname, '..');
 
-/* ---------------- 数据库连接池 ---------------- */
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || '127.0.0.1',
-  port: Number(process.env.DB_PORT || 3306),
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASS || '',
-  database: process.env.DB_NAME || 'vpn_ctrl',
-  waitForConnections: true,
-  connectionLimit: Number(process.env.DB_POOL || 10),
-  charset: 'utf8mb4',
-  dateStrings: true,          // 日期直接返回字符串，避免时区漂移
-  supportBigNumbers: true,
-});
-/* 数据库不可用时给出可识别的错误码，避免上层把 ECONNREFUSED 当成业务异常 */
-const q  = async (s, p = []) => {
-  try { return (await pool.execute(s, p))[0]; }
-  catch (e) {
-    if (e && (e.code === 'ECONNREFUSED' || e.code === 'PROTOCOL_CONNECTION_LOST' ||
-              e.code === 'ER_ACCESS_DENIED_ERROR' || e.code === 'ER_BAD_DB_ERROR'))
-      { e.dbDown = true; }
-    throw e;
-  }
-};
-const q1 = async (s, p = []) => (await q(s, p))[0] || null;
-const qv = async (s, p = []) => { const r = await q1(s, p); return r ? Object.values(r)[0] : null; };
-const db = { run: async (s, p) => { await pool.execute(s, p); }, get: q1, all: q };
+/* ---------------- 数据库（方言层：mysql | sqlite） ----------------
+ * 连接池/文件句柄、错误标记(dbDown)、SQL 方言差异全部封装在 dialects/ 下，
+ * 业务代码只依赖 q / q1 / qv / D.run / D.sql.* ，不出现任何库专有语法。 */
+const q  = (s, p) => D.all(s, p);                                  // 读取（SELECT）
+const q1 = (s, p) => D.get(s, p);
+const qv = (s, p) => D.scalar(s, p);
+const db = { run: (s, p) => D.run(s, p), get: (s, p) => D.get(s, p), all: (s, p) => D.all(s, p) };
 
 /* ---------------- 中间件 ---------------- */
 app.disable('x-powered-by');
@@ -94,7 +75,7 @@ function tokenOf(req) {
   const m = (req.headers.cookie || '').match(/(?:^|;\s*)vpn_sid=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : null;
 }
-async function attach(req, _res, next) { req.user = await A.loadSession(db, tokenOf(req)); next(); }
+async function attach(req, _res, next) { req.user = await A.loadSession(D, tokenOf(req)); next(); }
 function auth(req, res, next) {
   if (!req.user) return res.status(401).json({ error: '会话已失效，请重新登录' });
   next();
@@ -111,7 +92,7 @@ function need(mod, level) {
 }
 async function audit(req, act, target) {
   try {
-    await q(`INSERT INTO audit_log (ts, actor, action, target, ip) VALUES (NOW(3),?,?,?,?)`,
+    await q(`INSERT INTO audit_log (ts, actor, action, target, ip) VALUES (${D.sql.now3},?,?,?,?)`,
       [req.user ? req.user.name : 'anonymous', String(act).slice(0, 64),
        String(target == null ? '' : target).slice(0, 255), ipOf(req)]);
   } catch { /* 审计失败不阻断业务 */ }
@@ -158,16 +139,16 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
   if (!acct || acct.status !== 1 || !A.pwdVerify(pwd, acct.pwd_hash, acct.pwd_salt)) {
     if (acct) {
       const n = (acct.failed_attempts || 0) + 1;
-      await q(`UPDATE sys_account SET failed_attempts=? ${n >= 5 ? ', locked_until=DATE_ADD(NOW(3), INTERVAL 15 MINUTE)' : ''} WHERE id=?`, [n, acct.id]);
-      await q(`INSERT INTO login_fail (ts, login, ip, reason) VALUES (NOW(3),?,?,?)`, [login, ip, 'password']).catch(() => {});
+      await q(`UPDATE sys_account SET failed_attempts=? ${n >= 5 ? `, locked_until=${D.sql.plusMinutes('15')}` : ''} WHERE id=?`, [n, acct.id]);
+      await q(`INSERT INTO login_fail (ts, login, ip, reason) VALUES (${D.sql.now3},?,?,?)`, [login, ip, 'password']).catch(() => {});
       if (n >= 5) return res.status(429).json({ error: '失败次数过多，账号已锁定 15 分钟' });
     }
     return res.status(401).json({ error: '账号或密码错误' });
   }
 
-  const token = await A.createSession(db, acct.id, ip, req.headers['user-agent']);
+  const token = await A.createSession(D, acct.id, ip, req.headers['user-agent']);
   await q(`UPDATE sys_account SET failed_attempts=0, locked_until=NULL,
-           last_login_at=NOW(3), last_login_ip=? WHERE id=?`, [ip, acct.id]);
+           last_login_at=${D.sql.now3}, last_login_ip=? WHERE id=?`, [ip, acct.id]);
   await audit({ user: acct, headers: req.headers }, '登录系统', '-');
   res.setHeader('Set-Cookie', `vpn_sid=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${A.SESSION_HOURS * 3600}${process.env.COOKIE_SECURE === '1' ? '; Secure' : ''}`);
   res.json({ ok: true, mustChangePwd: !!acct.must_change_pwd });
@@ -182,21 +163,21 @@ app.post('/api/auth/setup', asyncHandler(async (req, res) => {
 
   const ip = ipOf(req);
   const { hash, salt } = A.pwdHash(pwd);
-  const r = await q(`UPDATE sys_account SET pwd_hash=?, pwd_salt=?, must_change_pwd=0,
+  const r = await D.run(`UPDATE sys_account SET pwd_hash=?, pwd_salt=?, must_change_pwd=0,
       failed_attempts=0, locked_until=NULL
     WHERE login='admin' AND (pwd_hash IS NULL OR pwd_hash='')`, [hash, salt]);
-  if (!r.affectedRows) return res.status(409).json({ error: '初始口令已设置，请直接登录' });
+  if (!r.changes) return res.status(409).json({ error: '初始口令已设置，请直接登录' });
 
   const acct = await q1(`SELECT * FROM sys_account WHERE login='admin'`);
   await audit({ user: acct, headers: req.headers }, '设置初始管理员口令', 'admin');
-  const token = await A.createSession(db, acct.id, ip, req.headers['user-agent']);
-  await q(`UPDATE sys_account SET last_login_at=NOW(3), last_login_ip=? WHERE id=?`, [ip, acct.id]);
+  const token = await A.createSession(D, acct.id, ip, req.headers['user-agent']);
+  await q(`UPDATE sys_account SET last_login_at=${D.sql.now3}, last_login_ip=? WHERE id=?`, [ip, acct.id]);
   res.setHeader('Set-Cookie', `vpn_sid=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${A.SESSION_HOURS * 3600}${process.env.COOKIE_SECURE === '1' ? '; Secure' : ''}`);
   res.json({ ok: true });
 }));
 
 app.post('/api/auth/logout', attach, async (req, res) => {
-  await A.destroySession(db, tokenOf(req));
+  await A.destroySession(D, tokenOf(req));
   await audit(req, '退出系统', '-').catch(() => {});
   res.setHeader('Set-Cookie', 'vpn_sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
   res.json({ ok: true });
@@ -275,13 +256,13 @@ app.post('/api/accounts', attach, need('account', 'rw'), async (req, res) => {
   if (m) return bad(res, m);
   if (await q1(`SELECT id FROM sys_account WHERE login=?`, [login])) return bad(res, '登录账号已存在');
   const { hash, salt } = A.pwdHash(String(req.body.password));
-  const r = await q(`INSERT INTO sys_account (login, name, pwd_hash, pwd_salt, role,
+  const r = await D.run(`INSERT INTO sys_account (login, name, pwd_hash, pwd_salt, role,
       perm_account, perm_dest, perm_vpn, perm_audit, status, must_change_pwd)
     VALUES (?,?,?,?,?,?,?,?,?,?,1)`,
     [login, name, hash, salt, role, normPerm(req.body.perm_account), normPerm(req.body.perm_dest),
      normPerm(req.body.perm_vpn), normPerm(req.body.perm_audit), req.body.status === 0 ? 0 : 1]);
   await audit(req, '新增管理员账号', `${name}(${login})`);
-  res.json({ ok: true, id: r.insertId });
+  res.json({ ok: true, id: r.id });
 });
 
 app.put('/api/accounts/:id', attach, need('account', 'rw'), async (req, res) => {
@@ -363,12 +344,12 @@ app.post('/api/pools', attach, need('dest', 'rw'), async (req, res) => {
   if (!name || !ip) return bad(res, '名称与 IP 必填');
   if (!IP_RE.test(ip)) return bad(res, 'IP 格式不正确');
   try {
-    const r = await q(`INSERT INTO dest_pool (name, ip, port, proto, descr) VALUES (?,?,?,?,?)`,
+    const r = await D.run(`INSERT INTO dest_pool (name, ip, port, proto, descr) VALUES (?,?,?,?,?)`,
       [name, ip, pr.spec, proto, str(req.body.descr, 128) || null]);
     await audit(req, '新增 IP-端口', `${name} ${ip}:${pr.spec || '全部端口'}`);
-    res.json({ ok: true, id: r.insertId });
+    res.json({ ok: true, id: r.id });
   } catch (e) {
-    if (e.code === 'ER_DUP_ENTRY') return bad(res, '该 IP:端口:协议 组合已存在');
+    if (D.isDup(e)) return bad(res, '该 IP:端口:协议 组合已存在');
     throw e;
   }
 });
@@ -383,7 +364,7 @@ app.put('/api/pools/:id', attach, need('dest', 'rw'), async (req, res) => {
       [name, ip, pr.spec, req.body.proto === 'UDP' ? 'UDP' : 'TCP',
        str(req.body.descr, 128) || null, Number(req.params.id)]);
   } catch (e) {
-    if (e.code === 'ER_DUP_ENTRY') return bad(res, '该 IP:端口:协议 组合已存在');
+    if (D.isDup(e)) return bad(res, '该 IP:端口:协议 组合已存在');
     throw e;
   }
   await audit(req, '修改 IP-端口', `${name} ${ip}:${pr.spec || '全部端口'}`);
@@ -403,16 +384,16 @@ async function setItems(pkgId, ids) {
     const pid = Number(raw);
     if (!Number.isInteger(pid)) continue;
     if (await q1(`SELECT id FROM dest_pool WHERE id=?`, [pid]))
-      await q(`INSERT IGNORE INTO dest_package_item (package_id, pool_id) VALUES (?,?)`, [pkgId, pid]);
+      await q(`${D.insertIgnore} INTO dest_package_item (package_id, pool_id) VALUES (?,?)`, [pkgId, pid]);
   }
 }
 app.post('/api/packages', attach, need('dest', 'rw'), async (req, res) => {
   const name = str(req.body.name, 64);
   if (!name) return bad(res, '包名称必填');
-  const r = await q(`INSERT INTO dest_package (name, descr) VALUES (?,?)`, [name, str(req.body.descr, 128) || null]);
-  await setItems(r.insertId, req.body.poolIds);
+  const r = await D.run(`INSERT INTO dest_package (name, descr) VALUES (?,?)`, [name, str(req.body.descr, 128) || null]);
+  await setItems(r.id, req.body.poolIds);
   await audit(req, '新增目的地包', name);
-  res.json({ ok: true, id: r.insertId });
+  res.json({ ok: true, id: r.id });
 });
 app.put('/api/packages/:id', attach, need('dest', 'rw'), async (req, res) => {
   const id = Number(req.params.id);
@@ -523,13 +504,13 @@ app.post('/api/vpn', attach, need('vpn', 'rw'), async (req, res) => {
   }
   const { priv, pub } = wgKeygen();
   try {
-    const r = await q(`INSERT INTO vpn_account (name, vpn_ip, note, pubkey, privkey) VALUES (?,?,?,?,?)`,
+    const r = await D.run(`INSERT INTO vpn_account (name, vpn_ip, note, pubkey, privkey) VALUES (?,?,?,?,?)`,
       [name, ip, str(req.body.note, 128) || null, pub, encKey(priv)]);
     await audit(req, '新增 VPN 用户', `${name} ${ip}（默认空权限，已生成密钥）`);
     await syncPeers(req);
-    res.json({ ok: true, id: r.insertId, vpn_ip: ip, pubkey: pub });
+    res.json({ ok: true, id: r.id, vpn_ip: ip, pubkey: pub });
   } catch (e) {
-    if (e.code === 'ER_DUP_ENTRY') return bad(res, '该姓名或 IP 已存在');
+    if (D.isDup(e)) return bad(res, '该姓名或 IP 已存在');
     throw e;
   }
 });
@@ -585,7 +566,7 @@ app.put('/api/vpn/:id/grants', attach, need('vpn', 'rw'), async (req, res) => {
     const exists = g.t === 'pool'
       ? await q1(`SELECT id FROM dest_pool WHERE id=?`, [refId])
       : await q1(`SELECT id FROM dest_package WHERE id=?`, [refId]);
-    if (exists) await q(`INSERT IGNORE INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [id, g.t, refId]);
+    if (exists) await q(`${D.insertIgnore} INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [id, g.t, refId]);
   }
   const t = await q1(`SELECT name FROM vpn_account WHERE id=?`, [id]);
   await audit(req, '授权目的地', `${t ? t.name : id} → ${(req.body.grants || []).length} 项`);
@@ -602,7 +583,7 @@ app.get('/api/logs', attach, need('audit', 'r'), async (req, res) => {
   if (dst)  { w.push('dst_ip LIKE ?');    p.push('%' + str(dst, 45) + '%'); }
   if (port) { w.push('dst_port = ?');     p.push(Number(port)); }
   if (act === 'ALLOW' || act === 'DENY') { w.push('action = ?'); p.push(act); }
-  if (days) { w.push('ts >= DATE_SUB(NOW(3), INTERVAL ? DAY)'); p.push(Number(days) || 1); }
+  if (days) { w.push(`ts >= ${D.sql.daysAgo('?')}`); p.push(Number(days) || 1); }
   res.json({ rows: await q(`SELECT ts, user_name, src_ip, dst_ip, dst_port, proto, action
     FROM access_log ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY ts DESC LIMIT 500`, p) });
 });
@@ -623,10 +604,10 @@ app.get('/api/audit', attach, need('audit', 'r'), async (_req, res) => {
 
 app.get('/api/stats', attach, need('audit', 'r'), async (_req, res) => {
   res.json({
-    today:  await qv(`SELECT COUNT(*) FROM access_log WHERE ts >= CURDATE()`),
-    week:   await qv(`SELECT COUNT(*) FROM access_log WHERE ts >= DATE_SUB(NOW(3), INTERVAL 7 DAY)`),
+    today:  await qv(`SELECT COUNT(*) FROM access_log WHERE ts >= ${D.sql.todayStart}`),
+    week:   await qv(`SELECT COUNT(*) FROM access_log WHERE ts >= ${D.sql.daysAgo('7')}`),
     denied: await qv(`SELECT COUNT(*) FROM access_log WHERE action='DENY'`),
-    active: await qv(`SELECT COUNT(DISTINCT user_name) FROM access_log WHERE ts >= DATE_SUB(NOW(3), INTERVAL 7 DAY)`),
+    active: await qv(`SELECT COUNT(DISTINCT user_name) FROM access_log WHERE ts >= ${D.sql.daysAgo('7')}`),
   });
 });
 
@@ -700,18 +681,12 @@ process.on('uncaughtException', e => {
  *  初始化
  * ===================================================================== */
 async function initDb() {
-  const sql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
-  for (const stmt of sql.split(';')) {
-    const s = stmt.replace(/--[^\n]*/g, '').trim();
-    if (s) { try { await q(s); } catch (e) { /* 忽略分区等兼容性差异 */ } }
-  }
-  console.log('[init] 表结构已就绪');
+  await D.initSchema();                     // 方言各自建表：schema.sql / schema.sqlite.sql
+  console.log(`[init] 表结构已就绪（${D.name}）`);
   try {
-    const cols = await q(`SELECT COLUMN_NAME FROM information_schema.COLUMNS
-      WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='vpn_account'`);
-    const has = n => cols.some(c => c.COLUMN_NAME === n);
-    if (!has('pubkey'))  await q(`ALTER TABLE vpn_account ADD COLUMN pubkey  VARCHAR(64)  NULL AFTER note`);
-    if (!has('privkey')) await q(`ALTER TABLE vpn_account ADD COLUMN privkey VARCHAR(255) NULL AFTER pubkey`);
+    const cols = await D.columns('vpn_account');
+    if (!cols.includes('pubkey'))  await D.run(`ALTER TABLE vpn_account ADD COLUMN pubkey  VARCHAR(64)  NULL`);
+    if (!cols.includes('privkey')) await D.run(`ALTER TABLE vpn_account ADD COLUMN privkey VARCHAR(255) NULL`);
   } catch (e) { console.error('[WARN] 字段迁移失败：', e.message); }
   /* 不设任何固定默认口令。未配置 ADMIN_INIT_PWD 时，admin 以「口令未设置」状态创建
      （pwd_hash 存空串），首次打开平台会引导在网页上设置口令。
@@ -747,26 +722,26 @@ async function initDb() {
     ['SSH-跳板','10.0.30.11',22,'TCP','Linux 跳板机'],['内网DNS','10.0.0.2',53,'UDP','域名解析']];
   const ids = {};
   for (const [name, ip, port, proto, d] of pools) {
-    const r = await q(`INSERT INTO dest_pool (name, ip, port, proto, descr) VALUES (?,?,?,?,?)`, [name, ip, port, proto, d]);
-    ids[name] = r.insertId;
+    const r = await D.run(`INSERT INTO dest_pool (name, ip, port, proto, descr) VALUES (?,?,?,?,?)`, [name, ip, String(port), proto, d]);
+    ids[name] = r.id;
   }
   const pkgMap = { '研发常用': ['业务-Web-01','业务-Web-02','业务-后台','数据库-MySQL'],
     '运维必备': ['运维-RDP-01','运维-RDP-02','SSH-跳板','堡垒机'], '只读审计': ['堡垒机'] };
   const pkgIds = {};
   for (const [n, list] of Object.entries(pkgMap)) {
-    const r = await q(`INSERT INTO dest_package (name, descr) VALUES (?,?)`, [n, '演示数据']);
-    pkgIds[n] = r.insertId;
-    await setItems(r.insertId, list.map(x => ids[x]));
+    const r = await D.run(`INSERT INTO dest_package (name, descr) VALUES (?,?)`, [n, '演示数据']);
+    pkgIds[n] = r.id;
+    await setItems(r.id, list.map(x => ids[x]));
   }
   const users = [['陈晓明','10.100.0.11','研发部',[['pkg','研发常用'],['pool','内网DNS']]],
     ['刘芳','10.100.0.12','运维部',[['pkg','运维必备'],['pkg','只读审计']]],
     ['赵磊','10.100.0.13','研发部',[['pool','SSH-跳板']]],['孙丽','10.100.0.14','市场部',[]],
     ['周鹏','10.100.0.15','运维部',[['pkg','运维必备']]],['吴敏','10.100.0.16','财务部',[]]];
   for (const [name, ip, note, grants] of users) {
-    const r = await q(`INSERT INTO vpn_account (name, vpn_ip, note) VALUES (?,?,?)`, [name, ip, note]);
+    const r = await D.run(`INSERT INTO vpn_account (name, vpn_ip, note) VALUES (?,?,?)`, [name, ip, note]);
     for (const [t, key] of grants) {
       const refId = t === 'pkg' ? pkgIds[key] : ids[key];
-      if (refId) await q(`INSERT INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [r.insertId, t, refId]);
+      if (refId) await q(`INSERT INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [r.id, t, refId]);
     }
   }
   /* 注意：演示模式只写入「配置类」数据（目的地池 / 包 / 账号 / 授权），
@@ -778,10 +753,13 @@ async function initDb() {
 (async () => {
   if (process.argv.includes('--init')) { await initDb(); process.exit(0); }
   try { await q('SELECT 1'); }
-  catch (e) { console.error('[WARN] MySQL 不可用：', e.message, '\n       前端会提示「无法连接后端服务」；解决后执行 npm run init 并重启'); }
-  setInterval(() => A.sweepSessions(db).catch(() => {}), 3600_000).unref();
+  catch (e) {
+    console.error(`[WARN] 数据库（${D.name}）不可用：`, e.message,
+      '\n       前端会提示「无法连接后端服务」；解决后执行 npm run init 并重启');
+  }
+  setInterval(() => A.sweepSessions(D).catch(() => {}), 3600_000).unref();
   app.listen(PORT, () => {
-    console.log(`[ok] 后端已启动  http://127.0.0.1:${PORT}`);
+    console.log(`[ok] 后端已启动  http://127.0.0.1:${PORT}   （DB: ${D.name}${D.file ? ' · ' + D.file : ''}）`);
     console.log(`[ok] 会话策略：绝对 ${A.SESSION_HOURS}h / 空闲 ${A.IDLE_MINUTES}min`);
   });
 })();
