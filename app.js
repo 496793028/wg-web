@@ -702,7 +702,7 @@ function bindLogFilters(){
 
 /* ---------------- 弹窗 ---------------- */
 function modal(o){
-  $('#layer').innerHTML = `<div class="modal-wrap" data-backdrop><div class="modal${o.wide?' wide':''}>
+  $('#layer').innerHTML = `<div class="modal-wrap" data-backdrop><div class="modal${o.wide?' wide':''}">
     <div class="modal-hd"><h3>${esc(o.title)}</h3><button class="icon-btn" data-close>×</button></div>
     <div class="modal-bd">${o.body}</div>
     <div class="modal-ft">${o.extra||''}<button class="btn" data-close>取消</button>
