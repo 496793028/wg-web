@@ -427,6 +427,7 @@ body.theme-light .combo-opt.sel{background:rgba(47,107,255,.12);color:#2f6bff}
 .ucard-body{min-height:34px;margin-bottom:12px}
 .ucard-ft{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--dim)}
 .ucard-pick{position:absolute;top:12px;right:12px}
+.card-grid:not(.batch-on) .ucard-pick{display:none}
 .avatar{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:600;font-size:15px;flex:none}
 .batch-bar{display:flex;align-items:center;gap:9px;margin-top:16px;padding:10px 14px;background:var(--bg2);
   border:1px solid var(--line);border-radius:12px}
