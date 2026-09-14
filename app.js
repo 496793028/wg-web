@@ -177,9 +177,10 @@ const vuser= id => S.vpn.find(v=>String(v.id)===String(id));
 function colorOf(n){ const cs=['#4c8dff','#2ecc8f','#a78bfa','#f5b544','#f4636b','#38bdf8','#fb7185','#34d399'];
   let h=0; for(const c of String(n)) h=(h*31+c.charCodeAt(0))>>>0; return cs[h%cs.length]; }
 function grantTags(v){
-  return v.grants.map(g=> g.t==='pool'
-    ? ((p=pool(g.id)) && {cls:'pool',t:p.name,s:`${p.ip}:${p.port}`})
-    : ((k=pkg(g.id))  && {cls:'pkg', t:k.name,s:`含 ${k.poolIds.length} 项`})).filter(Boolean);
+  return v.grants.map(g=>{
+    if(g.t==='pool'){ const p=pool(g.id); return p && {cls:'pool',t:p.name,s:`${p.ip}:${p.port}`}; }
+    const k=pkg(g.id); return k && {cls:'pkg', t:k.name,s:`含 ${k.poolIds.length} 项`};
+  }).filter(Boolean);
 }
 const grantCount = v => v.grants.reduce((n,g)=> n + (g.t==='pool' ? 1 : (pkg(g.id)?pkg(g.id).poolIds.length:0)), 0);
 
@@ -524,7 +525,6 @@ function viewVpn(){
     return `<div class="ucard ${ui.picked.has(String(v.id))?'pick':''}" data-act="vpn-open" data-id="${v.id}"
         style="animation-delay:${i*45}ms">
       <div class="cbox ucard-pick ${ui.picked.has(String(v.id))?'on':''}" data-act="vpn-pick" data-id="${v.id}">${ui.picked.has(String(v.id))?ICON.check:''}</div>
-      <button class="icon-btn del ucard-del" data-act="vpn-del" data-id="${v.id}" ${ro?'disabled style="opacity:.25"':''}>×</button>
       <div class="ucard-top"><div class="avatar" style="background:${colorOf(v.name)}">${esc(v.name.slice(0,1))}</div>
         <div style="min-width:0"><div class="ucard-name">${esc(v.name)}</div><div class="ucard-ip">${esc(v.ip)}</div></div></div>
       <div class="ucard-body"><div class="ucard-tags">
@@ -555,7 +555,6 @@ function renderVpnCards(){
   g.innerHTML = list.map((v,i)=>{ const tags=grantTags(v), n=grantCount(v);
     return `<div class="ucard ${ui.picked.has(String(v.id))?'pick':''}" data-act="vpn-open" data-id="${v.id}" style="animation-delay:${i*35}ms">
       <div class="cbox ucard-pick ${ui.picked.has(String(v.id))?'on':''}" data-act="vpn-pick" data-id="${v.id}">${ui.picked.has(String(v.id))?ICON.check:''}</div>
-      <button class="icon-btn del ucard-del" data-act="vpn-del" data-id="${v.id}" ${ro?'disabled style="opacity:.25"':''}>×</button>
       <div class="ucard-top"><div class="avatar" style="background:${colorOf(v.name)}">${esc(v.name.slice(0,1))}</div>
         <div style="min-width:0"><div class="ucard-name">${esc(v.name)}</div><div class="ucard-ip">${esc(v.ip)}</div></div></div>
       <div class="ucard-body"><div class="ucard-tags">
@@ -587,6 +586,7 @@ function openGrant(id){
       ${sfield('sf_grant','',q=>{ ui.q.grant=q; const l=$('#grantList'); if(l) l.innerHTML=grantListHTML(); },'搜索 IP-端口或目的地包')}
       <div id="grantList" style="margin-top:12px">${grantListHTML()}</div></div>
     <div class="drawer-ft"><div class="left">
+      <button class="btn danger" data-act="vpn-del" data-id="${v.id}" ${!canEdit('vpn')?'disabled':''}>删除用户</button>
       <button class="btn danger" data-act="grant-clear" ${!canEdit('vpn')?'disabled':''}>清空授权</button>
       <button class="btn" data-act="vpn-conf" data-id="${v.id}">客户端配置</button></div>
       <div style="display:flex;gap:9px"><button class="btn" data-close>取消</button>
