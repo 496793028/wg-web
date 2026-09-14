@@ -489,8 +489,7 @@ function poolForm(id){
   const ro = !canEdit('dest');
   return `<div class="field"><label>名称</label><input name="name" value="${esc(p.name)}" ${ro?'disabled':''} placeholder="如：数据库-MySQL"></div>
     <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="10.0.20.5"></div>
-    <div class="field"><label>端口，用逗号分隔，可以输入端口区间</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口">
-      <div class="hint">示例：80 ｜ 100-200 ｜ 9,100-200（中英文逗号均可）；留空=所有端口</div></div></div>
+    <div class="field"><label>端口或区间，用逗号分隔</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口"></div></div>
     ${combo('c_proto',{label:'协议',value:p.proto,searchable:false,
       options:[{v:'TCP',t:'TCP'},{v:'UDP',t:'UDP'}],onPick:()=>{}})}
     <div class="field" style="margin-bottom:0"><label>说明</label>
