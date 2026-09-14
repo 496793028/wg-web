@@ -150,8 +150,9 @@ cd server && npm run selftest
 └── server/
     ├── server.js                   # 后端主程序（全部 REST API）
     ├── auth.js                     # 口令哈希 / 会话 / 令牌
-    ├── db.js                       # 数据库连接
-    ├── schema.sql                  # 表结构
+    ├── dialects/                   # 数据库方言：index / mysql / sqlite（按 DB_DRIVER 选择）
+    ├── schema.sql                  # MySQL 表结构
+    ├── schema.sqlite.sql           # SQLite 表结构
     ├── selftest.js                 # 安全逻辑自检
     └── .env.example                # 另一份环境变量模板
 ```
