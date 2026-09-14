@@ -42,20 +42,21 @@ function create() {
     return e;
   };
 
-  function all(sql, p) {
+  /* 全部 async：与 mysql 方言保持同一契约（调用点存在 .catch 链，同步实现会炸） */
+  async function all(sql, p) {
     try { return db.prepare(sql).all(...norm(p)); } catch (e) { throw mark(e); }
   }
-  function get(sql, p) {
+  async function get(sql, p) {
     try { return db.prepare(sql).get(...norm(p)) || null; } catch (e) { throw mark(e); }
   }
-  function scalar(sql, p) { const r = get(sql, p); return r ? Object.values(r)[0] : null; }
-  function run(sql, p) {
+  async function scalar(sql, p) { const r = await get(sql, p); return r ? Object.values(r)[0] : null; }
+  async function run(sql, p) {
     try {
       const r = db.prepare(sql).run(...norm(p));
       return { id: r.lastInsertRowid === undefined ? undefined : Number(r.lastInsertRowid), changes: r.changes };
     } catch (e) { throw mark(e); }
   }
-  function exec(sql) { return db.exec(sql); }
+  async function exec(sql) { return db.exec(sql); }
 
   async function tx(fn) {
     db.exec('BEGIN');
@@ -66,8 +67,8 @@ function create() {
     } catch (e) { try { db.exec('ROLLBACK'); } catch { /* ignore */ } throw e; }
   }
 
-  function columns(table) {
-    return all(`PRAGMA table_info(${String(table).replace(/[^\w]/g, '')})`).map(r => r.name);
+  async function columns(table) {
+    return all(`PRAGMA table_info(${String(table).replace(/[^\w]/g, '')})`).then(r => r.map(x => x.name));
   }
 
   /** 建表：整份脚本交给 exec（它能正确处理触发器内部的分号） */
