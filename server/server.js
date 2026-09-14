@@ -324,15 +324,48 @@ app.post('/api/accounts/:id/password', attach, need('account', 'rw'), async (req
  *  目的地池 / 目的地包
  * ===================================================================== */
 const IP_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
+
+/* 端口规格解析（存 VARCHAR）：支持中英文逗号分隔、单端口与区间，可混用。
+   例：'' -> ''（全部端口）；'80' -> '80'；'100-200' -> '100-200'；
+       '9，100-200' / '9,100-200' -> '9,100-200'。
+   返回 { spec, error }；spec='' 表示「全部端口」。 */
+function parsePorts(raw) {
+  const s = String(raw == null ? '' : raw).replace(/[，、]/g, ',').trim();
+  if (!s) return { spec: '' };                                   // 留空 = 全部端口
+  const parts = s.split(',').map(x => x.trim()).filter(Boolean);
+  if (!parts.length) return { spec: '' };
+  if (parts.length > 64) return { error: '端口条目过多（最多 64 段）' };
+  const out = [];
+  for (const p of parts) {
+    const single = p.match(/^(\d{1,5})$/);
+    const range  = p.match(/^(\d{1,5})\s*-\s*(\d{1,5})$/);
+    if (single) {
+      const a = Number(single[1]);
+      if (a < 1 || a > 65535) return { error: `端口需在 1-65535 之间：${p}` };
+      out.push(String(a));
+    } else if (range) {
+      const a = Number(range[1]), b = Number(range[2]);
+      if (a < 1 || a > 65535 || b < 1 || b > 65535) return { error: `端口需在 1-65535 之间：${p}` };
+      if (a > b) return { error: `端口区间起止颠倒：${p}（应写成 小-大，如 100-200）` };
+      out.push(`${a}-${b}`);
+    } else {
+      return { error: `端口格式不正确：${p}（应为 80、100-200，或它们的逗号组合）` };
+    }
+  }
+  return { spec: [...new Set(out)].join(',') };                   // 去重并保持顺序
+}
+
 app.post('/api/pools', attach, need('dest', 'rw'), async (req, res) => {
-  const name = str(req.body.name, 64), ip = str(req.body.ip, 45), port = Number(req.body.port);
+  const name = str(req.body.name, 64), ip = str(req.body.ip, 45);
   const proto = req.body.proto === 'UDP' ? 'UDP' : 'TCP';
-  if (!name || !ip || !(port >= 1 && port <= 65535)) return bad(res, '名称 / IP / 端口填写有误');
+  const pr = parsePorts(req.body.port);
+  if (pr.error) return bad(res, pr.error);
+  if (!name || !ip) return bad(res, '名称与 IP 必填');
   if (!IP_RE.test(ip)) return bad(res, 'IP 格式不正确');
   try {
     const r = await q(`INSERT INTO dest_pool (name, ip, port, proto, descr) VALUES (?,?,?,?,?)`,
-      [name, ip, port, proto, str(req.body.descr, 128) || null]);
-    await audit(req, '新增 IP-端口', `${name} ${ip}:${port}`);
+      [name, ip, pr.spec, proto, str(req.body.descr, 128) || null]);
+    await audit(req, '新增 IP-端口', `${name} ${ip}:${pr.spec || '全部端口'}`);
     res.json({ ok: true, id: r.insertId });
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') return bad(res, '该 IP:端口:协议 组合已存在');
@@ -340,12 +373,20 @@ app.post('/api/pools', attach, need('dest', 'rw'), async (req, res) => {
   }
 });
 app.put('/api/pools/:id', attach, need('dest', 'rw'), async (req, res) => {
-  const port = Number(req.body.port);
-  if (!(port >= 1 && port <= 65535)) return bad(res, '端口范围 1-65535');
-  await q(`UPDATE dest_pool SET name=?, ip=?, port=?, proto=?, descr=? WHERE id=?`,
-    [str(req.body.name, 64), str(req.body.ip, 45), port, req.body.proto === 'UDP' ? 'UDP' : 'TCP',
-     str(req.body.descr, 128) || null, Number(req.params.id)]);
-  await audit(req, '修改 IP-端口', str(req.body.name, 64));
+  const name = str(req.body.name, 64), ip = str(req.body.ip, 45);
+  const pr = parsePorts(req.body.port);
+  if (pr.error) return bad(res, pr.error);
+  if (!name || !ip) return bad(res, '名称与 IP 必填');
+  if (!IP_RE.test(ip)) return bad(res, 'IP 格式不正确');
+  try {
+    await q(`UPDATE dest_pool SET name=?, ip=?, port=?, proto=?, descr=? WHERE id=?`,
+      [name, ip, pr.spec, req.body.proto === 'UDP' ? 'UDP' : 'TCP',
+       str(req.body.descr, 128) || null, Number(req.params.id)]);
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') return bad(res, '该 IP:端口:协议 组合已存在');
+    throw e;
+  }
+  await audit(req, '修改 IP-端口', `${name} ${ip}:${pr.spec || '全部端口'}`);
   res.json({ ok: true });
 });
 app.delete('/api/pools/:id', attach, need('dest', 'rw'), async (req, res) => {
@@ -601,10 +642,11 @@ app.get('/api/gateway/grants', asyncHandler(async (req, res) => {
     const allow = [], seen = new Set();
     const push = p => {
       if (!p) return;
-      const k = `${p.ip}:${p.port}:${p.proto}`;
+      const ports = p.port == null ? '' : String(p.port);   // '' = 全部端口；否则形如 '9,100-200'
+      const k = `${p.ip}:${ports}:${p.proto}`;
       if (seen.has(k)) return;
       seen.add(k);
-      allow.push({ ip: p.ip, port: Number(p.port), proto: p.proto });
+      allow.push({ ip: p.ip, ports, proto: p.proto });
     };
     for (const g of gs) {
       if (g.kind === 'pool') {

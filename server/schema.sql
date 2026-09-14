@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS dest_pool (
   id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name       VARCHAR(64)  NOT NULL,
   ip         VARCHAR(45)  NOT NULL,
-  port       INT UNSIGNED NOT NULL,
+  port       VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '端口规格：空=全部端口；支持单端口/区间/逗号分隔，如 9,100-200',
   proto      ENUM('TCP','UDP') NOT NULL DEFAULT 'TCP',
   descr      VARCHAR(128) NULL,
   created_at DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),

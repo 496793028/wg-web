@@ -96,6 +96,27 @@ def render_wg_block(peers):
     return '%s\n%s\n%s' % (WG_MARK_BEG, body, WG_MARK_END)
 
 
+PORT_SPEC_RE = re.compile(r'^[0-9,\-]+$')
+
+
+def _port_match(spec):
+    """把端口规格转成 nft 匹配片段（返回前缀，含前导空格）。
+
+    '' 或 None  -> ''            表示全部端口（不加 dport 条件）
+    '9,100-200' -> ' dport { 9, 100-200 }'
+    非法字符     -> None          调用方跳过该条
+    """
+    spec = ('' if spec is None else str(spec)).strip()
+    if not spec:
+        return ''
+    if not PORT_SPEC_RE.match(spec):
+        return None
+    segs = [s.strip() for s in spec.split(',') if s.strip()]
+    if not segs:
+        return ''
+    return ' dport { %s }' % ', '.join(segs)
+
+
 def render_nft(iface, users, log_limit=None):
     """生成完整 nftables 执行规则集（单事务原子重载）。返回 (文本, 放行规则数)。
 
@@ -124,10 +145,13 @@ def render_nft(iface, users, log_limit=None):
             proto = str(a.get('proto', 'TCP')).lower()
             if proto not in ('tcp', 'udp'):
                 proto = 'tcp'
-            dport = int(a.get('port') or 0)
-            L.append('        iifname "%s" ip saddr %s ip daddr %s %s dport %d '
+            pm = _port_match(a.get('ports', a.get('port', '')))
+            if pm is None:
+                log('跳过非法端口规格：%r' % (a.get('ports', a.get('port', '')),))
+                continue
+            L.append('        iifname "%s" ip saddr %s ip daddr %s %s%s '
                      'ct state new log prefix "vpn-flow ALLOW "%s accept'
-                     % (iface, ip, a.get('ip'), proto, dport, lim))
+                     % (iface, ip, a.get('ip'), proto, pm, lim))
             n += 1
     L.append('')
     L.append('        # ==== default deny: unauthorized new conn, log + drop ====')

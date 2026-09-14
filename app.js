@@ -24,6 +24,10 @@ function fmt(ts){ const d = new Date(ts), p = n => String(n).padStart(2,'0');
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
 const svc = p => ({22:'SSH',53:'DNS',80:'HTTP',443:'HTTPS',445:'SMB',1433:'MSSQL',3306:'MySQL',
   3389:'RDP',5432:'PostgreSQL',5900:'VNC',6379:'Redis',8080:'HTTP-Alt',9200:'ES',27017:'MongoDB'}[p] || '-');
+/* 端口规格展示：'' = 全部端口；否则原样显示（如 80 / 100-200 / 9,100-200） */
+const portText = p => (p === '' || p == null) ? '所有端口' : String(p);
+/* 服务名仅在单端口时给出，区间/多段/全部不适用 */
+const svcOf = p => /^\d+$/.test(String(p == null ? '' : p)) ? svc(Number(p)) : '—';
 function ago(ts){ const s=(Date.now()-ts)/1000;
   if(s<60) return '刚刚'; if(s<3600) return Math.floor(s/60)+' 分钟前';
   if(s<86400) return Math.floor(s/3600)+' 小时前'; if(s<2592000) return Math.floor(s/86400)+' 天前';
@@ -443,7 +447,7 @@ function viewDest(){
             <span class="badge acc">${items.length} 项</span></div>
           <div class="ucard-tags" style="min-height:40px;margin-bottom:14px">
             ${items.length ? items.slice(0,4).map(p=>`<span class="tag pool">${esc(p.name)}
-              <span style="opacity:.6">${esc(p.ip)}:${esc(p.port)}</span></span>`).join('')
+              <span style="opacity:.6">${esc(p.ip)}:${esc(portText(p.port))}</span></span>`).join('')
               + (items.length>4?`<span class="tag more">+${items.length-4}</span>`:'')
               : '<span class="empty-mini">尚未添加 IP-端口</span>'}</div>
           <div style="display:flex;gap:8px">
@@ -466,8 +470,8 @@ function poolTable(list, ro){
     ${list.map(p=>{ const on = ui.picked.has(String(p.id));
       return `<tr>${ck?`<td class="cbox-col"><div class="cbox ${on?'on':''}" data-act="pool-pick" data-id="${p.id}">${on?ICON.check:''}</div></td>`:''}
       <td><b>${esc(p.name)}</b><div class="sub">${esc(p.descr||'—')}</div></td>
-      <td class="mono">${esc(p.ip)}</td><td class="mono">${esc(p.port)}</td>
-      <td><span class="badge">${esc(p.proto)}</span></td><td class="sub">${esc(svc(p.port))}</td>
+      <td class="mono">${esc(p.ip)}</td><td class="mono">${esc(portText(p.port))}</td>
+      <td><span class="badge">${esc(p.proto)}</span></td><td class="sub">${esc(svcOf(p.port))}</td>
       <td><div class="row-acts">
         <button class="btn sm" data-act="pool-edit" data-id="${p.id}">${ro?'查看':'编辑'}</button>
         <button class="btn sm danger" data-act="pool-del" data-id="${p.id}" ${ro?'disabled style="opacity:.25"':''}>删除</button>
@@ -485,7 +489,8 @@ function poolForm(id){
   const ro = !canEdit('dest');
   return `<div class="field"><label>名称</label><input name="name" value="${esc(p.name)}" ${ro?'disabled':''} placeholder="如：数据库-MySQL"></div>
     <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="10.0.20.5"></div>
-    <div class="field"><label>端口</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="3306"></div></div>
+    <div class="field"><label>端口，用逗号分隔，可以输入端口区间</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口">
+      <div class="hint">示例：80 ｜ 100-200 ｜ 9,100-200（中英文逗号均可）；留空=所有端口</div></div></div>
     ${combo('c_proto',{label:'协议',value:p.proto,searchable:false,
       options:[{v:'TCP',t:'TCP'},{v:'UDP',t:'UDP'}],onPick:()=>{}})}
     <div class="field" style="margin-bottom:0"><label>说明</label>
@@ -622,7 +627,7 @@ function grantListHTML(){
       : '<div class="chk-empty">没有匹配的目的地包</div>'}</div></div>
     <div class="chk-group"><div class="chk-group-hd">
       <span class="chk-group-t">IP-端口池（单条精确授权）</span><span class="chk-group-n">${ps.length} 个</span></div>
-    <div class="chk-list">${ps.length ? ps.map(p=>row('pool',p.id,esc(p.name),`${esc(p.ip)}:${esc(p.port)} · ${esc(p.proto)} · ${esc(svc(p.port))}`)).join('')
+    <div class="chk-list">${ps.length ? ps.map(p=>row('pool',p.id,esc(p.name),`${esc(p.ip)}:${esc(portText(p.port))} · ${esc(p.proto)}${/^\d+$/.test(String(p.port))?' · '+esc(svc(Number(p.port))):''}`)).join('')
       : '<div class="chk-empty">没有匹配的 IP-端口</div>'}</div></div>`;
 }
 
@@ -832,7 +837,7 @@ const ACT = {
 
   /* 目的地 */
   'pool-new': ()=> modal({title:'新增 IP-端口', body:poolForm(null), onOk: async ()=>{
-      const g=readForm(); if(!g.name||!g.ip||!g.port){ toast('名称 / IP / 端口必填','err'); return false; }
+      const g=readForm(); if(!g.name||!g.ip){ toast('名称与 IP 必填（端口留空=所有端口）','err'); return false; }
       await api('POST','pools',{...g,proto:comboVal('c_proto')||'TCP'}); await loadState();
       refresh(); toast('已添加'); }}),
   'pool-edit': el=>{ const p=pool(el.dataset.id);
@@ -842,7 +847,7 @@ const ACT = {
       await api('PUT','pools/'+p.id,{...g,proto:comboVal('c_proto')||p.proto}); await loadState();
       refresh(); toast('已保存'); }}); },
   'pool-del': el=>{ const p=pool(el.dataset.id);
-    confirmBox('删除 IP-端口',`确定删除 <b>${esc(p.name)}</b>（${esc(p.ip)}:${esc(p.port)}）吗？引用它的包会同步移除。`, async ()=>{
+    confirmBox('删除 IP-端口',`确定删除 <b>${esc(p.name)}</b>（${esc(p.ip)}:${esc(portText(p.port))}）吗？引用它的包会同步移除。`, async ()=>{
       await api('DELETE','pools/'+p.id); await loadState();
       refresh(); toast('已删除'); }); },
   'pool-batch': ()=>{ if(!canEdit('dest')) return; ui.batch=!ui.batch; ui.picked.clear(); refresh(); },
