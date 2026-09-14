@@ -85,6 +85,17 @@ function setTheme(t){
   localStorage.setItem('vpn_theme', t);
 }
 
+/* ---------------- 记忆上次停留的页面（刷新后回到原页，而非默认页） ---------------- */
+const UI_KEY = 'vpn_ui';
+function saveUi(){
+  try{ localStorage.setItem(UI_KEY, JSON.stringify({
+    route: ui.route, sel: ui.sel, destTab: ui.destTab, auditTab: ui.auditTab })); }catch(e){}
+}
+function loadUi(){
+  try{ const o = JSON.parse(localStorage.getItem(UI_KEY) || '{}');
+    return (o && typeof o === 'object') ? o : {}; }catch(e){ return {}; }
+}
+
 /* ---------------- API ---------------- */
 async function api(method, path, body){
   const opt = { method, credentials:'same-origin', headers:{ 'X-Requested-With':'fetch' } };
@@ -735,7 +746,7 @@ const ACT = {
   nav: el=>{ const k=el.dataset.k, sel=el.dataset.sel||el.dataset.k;
     document.getElementById('avatarMenu')?.remove();
     if(ui.sel===sel && ui.route===k) return;
-    ui.route=k; ui.sel=sel; ui.batch=false; ui.picked.clear();
+    ui.route=k; ui.sel=sel; ui.batch=false; ui.picked.clear(); saveUi();
     [...document.querySelectorAll('.dock-nav .dock-item')].forEach(i=>i.classList.toggle('sel', i.dataset.sel===sel));
     moveCursorTo();
     const sp=$('.strip-path b'); if(sp) sp.textContent=(MODULES.find(m=>m.k===k)||{n:'权限设置'}).n;
@@ -779,8 +790,8 @@ const ACT = {
     try{ await api('POST','auth/logout',{}); }catch{}
     me=null; render(); },
 
-  'dtab': el=>{ ui.destTab=el.dataset.v; refresh(); },
-  'atab': el=>{ ui.auditTab=el.dataset.v; refresh();
+  'dtab': el=>{ ui.destTab=el.dataset.v; saveUi(); refresh(); },
+  'atab': el=>{ ui.auditTab=el.dataset.v; saveUi(); refresh();
     if(ui.auditTab==='access'){ bindLogFilters(); loadLogs(); }
     else loadAudits().then(()=>refresh()); },
   'fclear': ()=>{ ui.f={name:'',dst:'',port:'',act:'',days:''}; refresh(); loadLogs(); },
@@ -952,6 +963,13 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeCombos(); c
   const b=$('#boot'); if(b){ b.style.opacity='0'; setTimeout(()=>b.remove(),300); }
   setTheme(THEME);
   $('#app').hidden=false;
-  if(me){ ui.route=(MODULES.find(m=>canView(m.k))||MODULES[0]).k; ui.sel=ui.route; }
+  if(me){
+    const saved = loadUi();
+    const okRoute = k => !!MODULES.find(m=>m.k===k && canView(m.k));
+    ui.route = okRoute(saved.route) ? saved.route : (MODULES.find(m=>canView(m.k))||MODULES[0]).k;
+    ui.sel   = (saved.sel==='gear' && ui.route==='account') ? 'gear' : ui.route;
+    if(saved.destTab==='pool'||saved.destTab==='pkg') ui.destTab = saved.destTab;
+    if(saved.auditTab==='access'||saved.auditTab==='audit') ui.auditTab = saved.auditTab;
+  }
   render();
 })();
