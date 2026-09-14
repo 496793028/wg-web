@@ -25,9 +25,9 @@ function pwdVerify(pw, hashHex, saltHex) {
     return crypto.timingSafeEqual(h, dk);
   } catch { return false; }
 }
-/** 口令策略：≥10 位，含大小写字母与数字 */
+/** 口令策略：≥6 位，含大小写字母与数字 */
 function pwdPolicy(p) {
-  if (typeof p !== 'string' || p.length < 10) return '密码长度至少 10 位';
+  if (typeof p !== 'string' || p.length < 6) return '密码长度至少 6 位';
   if (!/[a-z]/.test(p) || !/[A-Z]/.test(p)) return '密码需同时包含大小写字母';
   if (!/\d/.test(p)) return '密码需包含数字';
   return null;

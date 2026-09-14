@@ -24,6 +24,8 @@ NoNewPrivileges=yes
 ProtectHome=yes
 PrivateTmp=yes
 ProtectSystem=full
+# ProtectSystem=full 会把 /etc 挂为只读；wg0.conf 与状态目录 ip2name.json 需可写，故显式放行
+ReadWritePaths=/etc/wireguard -/var/lib/vpn-sync
 # 日志走 journald，便于 `journalctl -u vpn-sync -f`
 StandardOutput=journal
 StandardError=journal

@@ -8,7 +8,7 @@ const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 const uid = p => p + '_' + Math.random().toString(36).slice(2, 9);
-/* 生成强随机初始口令（满足服务端策略：≥10 位且含大小写与数字）。
+/* 生成强随机初始口令（满足服务端策略：≥6 位且含大小写与数字）。
    字符集刻意避开 & < > " ' ，避免写入 HTML 属性时需转义。 */
 function randPwd(len=16){
   const U='ABCDEFGHJKLMNPQRSTUVWXYZ', L='abcdefghijkmnopqrstuvwxyz', D='23456789', S='!@#$%^*-_=+';
@@ -244,12 +244,12 @@ function setupHTML(){
       设定一个强口令，设定完成后即可直接进入平台。</p>
     <form id="setupForm" autocomplete="off">
       <div class="field"><label>新口令</label>
-        <input name="p" type="password" autocomplete="new-password" placeholder="至少 10 位，含大小写字母与数字"></div>
+        <input name="p" type="password" autocomplete="new-password" placeholder="至少 6 位，含大小写字母与数字"></div>
       <div class="field"><label>确认口令</label>
         <input name="p2" type="password" autocomplete="new-password" placeholder="再次输入相同口令"></div>
       <div class="login-err" id="setupErr"></div>
       <button class="btn primary block" type="submit">设定口令并进入</button></form>
-    <div class="demo-tip"><b>口令要求</b>：至少 10 位，且同时包含大写字母、小写字母与数字。<br>
+    <div class="demo-tip"><b>口令要求</b>：至少 6 位，且同时包含大写字母、小写字母与数字。<br>
       本页面仅在口令未设置时出现；设定后请妥善保管，遗失只能通过服务器端重置。</div>
   </div></div>`;
 }
@@ -422,7 +422,7 @@ function acctForm(id){
     ${combo('c_status',{label:'状态',value:stVal,searchable:false,
       options:[{v:'1',t:'启用'},{v:'0',t:'停用'}],onPick:()=>{}})}
     ${id ? '' : `<div class="field"><label>初始密码</label><input name="password" type="text" value="${randPwd()}" spellcheck="false">
-      <div class="hint">已自动生成强随机口令，请复制后安全转交本人。服务端策略：≥10 位且含大小写字母与数字。</div></div>`}
+      <div class="hint">已自动生成强随机口令，请复制后安全转交本人。服务端策略：≥6 位且含大小写字母与数字。</div></div>`}
     <div class="field"><label>模块权限</label>
       <table class="perm-table"><thead><tr><th>模块</th><th>权限级别</th></tr></thead><tbody>
       ${MODULES.map(m=>`<tr><td>${m.n}</td><td><div class="seg" data-seg="${m.k}">
@@ -778,7 +778,7 @@ const ACT = {
           <input name="old" type="password" autocomplete="current-password"></div>
         <div class="field" style="margin-bottom:0"><label>新密码</label>
           <input name="next" type="password" autocomplete="new-password">
-          <div class="hint">服务端策略：≥10 位，且同时包含大小写字母与数字。</div></div>`,
+          <div class="hint">服务端策略：≥6 位，且同时包含大小写字母与数字。</div></div>`,
       okText:'修改',
       onOk: async ()=>{
         const g=readForm();
