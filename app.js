@@ -59,6 +59,7 @@ const ICON = {
   moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
   eye:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>',
   eyeOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 10.7a3 3 0 0 0 4.2 4.2"/><path d="M9.9 5.2A9.6 9.6 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.3 4M6.1 6.1A17 17 0 0 0 2 12s3.5 7 10 7a9.6 9.6 0 0 0 3-.5"/></svg>',
+  more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>',
 };
 
 const MODULES = [
@@ -290,19 +291,23 @@ function avatarURL(){
   if(!me || !me.avatar) return null;
   return me.avatar; // 真实模式下为 /uploads/avatars/.. 路径
 }
+function navItems(){
+  const arr = MODULES.filter(m=>canView(m.k)).map(m=>({ k:m.k, sel:m.k, n:m.n, ico:ICON[m.k] }));
+  if(me.role==='admin' || canEdit('account')) arr.push({ k:'settings', sel:'gear', n:'设置', ico:ICON.gear });
+  return arr;
+}
+function currentPathName(){
+  if(ui.route==='settings') return '设置';
+  return (MODULES.find(m=>m.k===ui.route)||{n:'权限设置'}).n;
+}
 function shell(){
-  const items = MODULES.filter(m=>canView(m.k)).map(m=>`
-    <button class="dock-item ${ui.sel===m.k?'sel':''}" data-act="nav" data-k="${m.k}" data-sel="${m.k}">
-      <span class="di-ico">${ICON[m.k]}</span>
-      <span class="di-label">${m.n}</span>
-      ${canEdit(m.k)?'':`<span class="ro-tag">只读</span>`}
+  const items = navItems();
+  const navHtml = items.map(it=>`
+    <button class="dock-item ${ui.sel===it.sel?'sel':''}" data-act="nav" data-k="${it.k}" data-sel="${it.sel}">
+      <span class="di-ico">${it.ico}</span>
+      <span class="di-label">${it.n}</span>
+      ${it.k!=='settings' && !canEdit(it.k)?`<span class="ro-tag">只读</span>`:''}
     </button>`).join('');
-  const isAdmin = me.role==='admin' || canEdit('account');
-  const gear = isAdmin ? `
-    <button class="dock-item ${ui.sel==='gear'?'sel':''}" data-act="nav" data-k="account" data-gear="1" data-sel="gear">
-      <span class="di-ico">${ICON.gear}</span>
-      <span class="di-label">权限设置</span>
-    </button>` : '';
   const av = avatarURL();
   const dock = `<div class="dock" id="dock"><div class="dock-rail">
     <div class="dock-idwrap" data-act="avatar-toggle" id="dockAvatarWrap" title="${esc(me.name)}">
@@ -312,21 +317,29 @@ function shell(){
     </div>
     <nav class="dock-nav" id="dockNav">
       <div class="dock-cursor" id="dockCursor"></div>
-      ${items}${gear}
+      ${navHtml}
     </nav>
     <button class="dock-expand" data-act="dock-toggle" title="展开 / 收起">${ICON.expand}</button>
   </div></div>`;
-  const pathName = (MODULES.find(m=>m.k===ui.route)||{n:'权限设置'}).n;
+  const mbar = `<div class="mbar">${items.map(it=>`
+    <button class="mbar-item ${ui.sel===it.sel?'sel':''}" data-act="nav" data-k="${it.k}" data-sel="${it.sel}">
+      <span class="mb-ico">${it.ico}</span><span class="mb-label">${it.n}</span></button>`).join('')}</div>`;
+  const mtop = `<div class="mtop">
+      <button class="mtop-avatar" data-act="avatar-toggle" type="button" title="${esc(me.name)}">
+        ${av?`<img src="${esc(av)}" alt="">`:ICON.person}</button>
+      <div class="mtop-title">${esc(currentPathName())}</div>
+      <button class="icon-btn" data-act="reload" title="刷新数据">${ICON.reload}</button>
+    </div>`;
   const main = `<div class="main">
     <div class="topstrip">
       <span class="badge ok">● 后端已连接</span>
-      <span class="strip-path">当前：<b>${esc(pathName)}</b></span>
+      <span class="strip-path">当前：<b>${esc(currentPathName())}</b></span>
       <span class="spacer"></span>
       <button class="icon-btn" data-act="reload" title="刷新数据">${ICON.reload}</button>
     </div>
     <div id="mainView"><div class="view">${routeView()}</div></div>
   </div>`;
-  return dock + main;
+  return dock + mtop + mbar + main;
 }
 
 function moveCursorTo(){
@@ -340,9 +353,9 @@ function moveCursorTo(){
 }
 
 /* 头像下拉菜单 */
-function toggleAvatarMenu(){
+function toggleAvatarMenu(src){
   const old = document.getElementById('avatarMenu'); if(old){ old.remove(); return; }
-  const a = document.getElementById('dockAvatar'); if(!a) return;
+  const a = (src && document.body.contains(src)) ? src : document.getElementById('dockAvatar'); if(!a) return;
   const r = a.getBoundingClientRect();
   const m = document.createElement('div'); m.className='avatar-menu'; m.id='avatarMenu';
   m.innerHTML = `<div class="am-head"><div class="am-name">${esc(me.name)}</div><div class="am-role">${esc(ROLES[me.role]||me.role)}</div></div>
@@ -377,7 +390,128 @@ async function uploadAvatar(dataURL){
 }
 
 /* ================= 路由视图 ================= */
+function isMobile(){
+  return window.matchMedia('(max-width: 760px), (orientation: portrait) and (max-width: 900px)').matches;
+}
+/* 二级菜单（modal/drawer）内存在未保存输入（搜索框除外）时，移动端点击遮罩不关闭 */
+function layerHasUnsavedInput(){
+  const layer=$('#layer'); if(!layer) return false;
+  return [...layer.querySelectorAll('input,textarea,select')].some(el=>{
+    if(el.closest('.sfield, .combo-search')) return false;
+    return (el.value||'').trim() !== '';
+  });
+}
+/* 移动端：行内「删除 / 修改」等折叠为「更多」下拉选单 */
+function rowMore(acts){
+  return `<button class="btn sm row-more" data-act="row-more" data-acts='${JSON.stringify(acts)}' title="更多操作" aria-label="更多操作">${ICON.more}</button>`;
+}
+function openActionMenu(anchor, acts){
+  document.getElementById('popMenu')?.remove();
+  const r = anchor.getBoundingClientRect();
+  const m = document.createElement('div'); m.className='avatar-menu pop-menu'; m.id='popMenu';
+  m.innerHTML = (acts||[]).map(a=>`<button class="am-item ${a.danger?'danger':''}" data-act="${a.act}" data-id="${a.id}" ${a.disabled?'disabled':''}>${esc(a.label)}</button>`).join('')
+    || '<div class="am-item" style="color:var(--faint)">无可执行操作</div>';
+  document.body.appendChild(m);
+  const mw=m.offsetWidth, mh=m.offsetHeight;
+  let left=Math.min(r.right - mw, window.innerWidth - mw - 8); if(left<8) left=8;
+  let top=r.bottom + 8;
+  if(top + mh > window.innerHeight - 8) top=Math.max(8, r.top - mh - 8);
+  m.style.left=left+'px'; m.style.top=top+'px';
+  requestAnimationFrame(()=>m.classList.add('open'));
+  m.addEventListener('click', e=>{ if(e.target.closest('[data-act]')) m.remove(); });
+  document.addEventListener('click', popOutside, true);
+}
+function popOutside(e){
+  if(!e.target.closest('.pop-menu') && !e.target.closest('[data-act="row-more"]')){
+    document.getElementById('popMenu')?.remove();
+    document.removeEventListener('click', popOutside, true);
+  }
+}
+/* 修改头像：选图 → 校验可渲染 → 圆形蒙版预览（缩放 / 拖动 / 双指）→ 提交方形裁切 */
+function openAvatarCrop(dataURL){
+  const img = new Image();
+  img.onload = ()=>{ buildCropUI(img, dataURL); };
+  img.onerror = ()=> toast('图片无法渲染，文件可能已损坏或不是受支持的图片格式','err');
+  img.src = dataURL;
+}
+function buildCropUI(img, dataURL){
+  const D=240, OUT=320;
+  $('#layer').innerHTML = `<div class="modal-wrap" data-backdrop><div class="crop-modal">
+    <div class="modal-hd"><h3>调整头像</h3><button class="icon-btn" data-close>×</button></div>
+    <div class="crop-stage" id="cropStage">
+      <img id="cropImg" src="${dataURL}" alt="">
+      <div class="crop-mask" style="width:${D}px;height:${D}px"></div>
+      <div class="crop-hint">滚轮 / 双指缩放 · 拖动调整位置</div>
+    </div>
+    <div class="modal-ft"><button class="btn" data-close>取消</button>
+      <button class="btn primary" id="cropSubmit">提交</button></div>
+  </div></div>`;
+  const stage=$('#cropStage'), im=$('#cropImg');
+  const W=img.naturalWidth, H=img.naturalHeight;
+  const minScale=D/Math.max(W,H), maxScale=12;
+  let scale=Math.min(maxScale, Math.max(minScale, D/Math.min(W,H)));
+  let imgX=stage.clientWidth/2 - W/2*scale, imgY=stage.clientHeight/2 - H/2*scale;
+  const clamp=v=>Math.max(minScale, Math.min(maxScale, v));
+  function apply(){ im.style.transform=`translate(${imgX}px,${imgY}px) scale(${scale})`; }
+  function zoomAt(fx, fy, ns){ ns=clamp(ns);
+    imgX=fx-(fx-imgX)*(ns/scale); imgY=fy-(fy-imgY)*(ns/scale); scale=ns; apply(); }
+  apply();
+  const pointers=new Map(); let lastX=0,lastY=0,lastDist=0,dragging=false;
+  stage.addEventListener('pointerdown', e=>{ stage.setPointerCapture?.(e.pointerId);
+    pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pointers.size===1){ dragging=true; lastX=e.clientX; lastY=e.clientY; } });
+  stage.addEventListener('pointermove', e=>{ if(!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pointers.size>=2){ const p=[...pointers.values()]; const d=Math.hypot(p[0].x-p[1].x, p[0].y-p[1].y);
+      const mx=(p[0].x+p[1].x)/2, my=(p[0].y+p[1].y)/2, r=stage.getBoundingClientRect();
+      if(lastDist) zoomAt(mx-r.left, my-r.top, scale*(d/lastDist)); lastDist=d; }
+    else if(dragging){ imgX+=e.clientX-lastX; imgY+=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY; apply(); } });
+  const up=e=>{ pointers.delete(e.pointerId); if(pointers.size<2) lastDist=0; if(pointers.size===0) dragging=false; };
+  stage.addEventListener('pointerup', up); stage.addEventListener('pointercancel', up);
+  stage.addEventListener('wheel', e=>{ e.preventDefault(); const r=stage.getBoundingClientRect();
+    zoomAt(e.clientX-r.left, e.clientY-r.top, scale*(e.deltaY<0?1.12:0.89)); }, {passive:false});
+  $('#cropSubmit').onclick=()=>{
+    const cx=stage.clientWidth/2, cy=stage.clientHeight/2;
+    let s=D/scale; s=Math.min(s, W, H);
+    const ix=(cx-imgX)/scale, iy=(cy-imgY)/scale;
+    const x0=Math.max(0,Math.min(ix-s/2, W-s)), y0=Math.max(0,Math.min(iy-s/2, H-s));
+    const c=document.createElement('canvas'); c.width=OUT; c.height=OUT;
+    const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,OUT,OUT);
+    ctx.drawImage(img, x0, y0, s, s, 0, 0, OUT, OUT);
+    let out; try{ out=c.toDataURL('image/png'); }catch{ toast('裁切失败，请重试','err'); return; }
+    uploadAvatar(out).finally(closeLayer);
+  };
+}
+function viewSettings(){
+  const av = avatarURL();
+  const perms = MODULES.map(m=>`<div class="perm-row">
+      <span class="perm-mod">${m.n}</span>
+      <span class="badge ${me.role==='admin'?'ok':(me.perm[m.k]==='rw'?'ok':me.perm[m.k]==='r'?'warn':'')}">${me.role==='admin'?'可修改':(PERM_LABEL[me.perm[m.k]]||'无权限')}</span>
+    </div>`).join('');
+  return `<div class="page-hd"><div><div class="page-title">设置</div>
+      <div class="page-desc">查看并管理你的个人资料与偏好</div></div></div>
+    <div class="panel profile-card">
+      <div class="profile-top">
+        <button class="profile-avatar" data-act="avatar-edit" type="button" title="修改头像">
+          ${av?`<img src="${esc(av)}" alt="">`:ICON.person}<span class="pa-edit">${ICON.upload}</span>
+        </button>
+        <div class="profile-meta">
+          <div class="profile-name">${esc(me.name)}</div>
+          <div class="profile-role">${esc(ROLES[me.role]||me.role)}</div>
+          <div class="profile-login sub mono">${esc(me.login)}</div>
+        </div>
+      </div>
+      <div class="profile-perms"><div class="pp-hd">我的权限</div>${perms}</div>
+      <div class="profile-actions">
+        <div class="pf-row"><span class="pf-label">${ICON.sun}<span>黑白风格</span></span>
+          <button class="am-switch ${THEME==='light'?'on':''}" data-act="theme-toggle" role="switch" aria-checked="${THEME==='light'}"><span class="am-knob"></span></button></div>
+        <button class="btn block" data-act="self-pw">${ICON.person}<span>修改密码</span></button>
+        <button class="btn block danger" data-act="logout">${ICON.logout}<span>退出登录</span></button>
+      </div>
+    </div>`;
+}
 function routeView(){
+  if(ui.route==='settings') return viewSettings();
   if(!canView(ui.route)) return `<div class="empty"><div class="e-ico">🔒</div><p>你没有访问该模块的权限</p></div>`;
   return ({account:viewAccount,dest:viewDest,vpn:viewVpn,audit:viewAudit})[ui.route]();
 }
@@ -398,7 +532,11 @@ function viewAccount(){
       <button class="btn sm" data-act="acct-edit" data-id="${a.id}">${ro?'查看':'编辑'}</button>
       <button class="btn sm" data-act="acct-pw" data-id="${a.id}" ${ro?'disabled':''}>重置密码</button>
       <button class="icon-btn del" data-act="acct-del" data-id="${a.id}" ${ro||a.role==='admin'?'disabled style="opacity:.25"':''}>×</button>
-    </div></td></tr>`).join('');
+    </div>${rowMore([
+      {act:'acct-edit', id:a.id, label: ro?'查看':'编辑'},
+      {act:'acct-pw', id:a.id, label:'重置密码', disabled: !!ro},
+      {act:'acct-del', id:a.id, label:'删除', danger:true, disabled: !!(ro||a.role==='admin')},
+    ])}</td></tr>`).join('');
   return `<div class="page-hd"><div><div class="page-title">账号管理</div>
       <div class="page-desc">维护本平台登录账号，并按模块分配「无权限 / 仅查看 / 可修改」三级权限</div></div>
     <div class="hd-actions"><button class="btn primary" data-act="acct-new" ${ro?'disabled':''}>+ 新增账号</button></div></div>
@@ -461,9 +599,13 @@ function viewDest(){
               <span style="opacity:.6">${esc(p.ip)}:${esc(portText(p.port))}</span></span>`).join('')
               + (items.length>4?`<span class="tag more">+${items.length-4}</span>`:'')
               : '<span class="empty-mini">尚未添加 IP-端口</span>'}</div>
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px" class="row-acts">
             <button class="btn sm" data-act="pkg-edit" data-id="${k.id}">${ro?'查看内容':'管理内容'}</button>
             <button class="btn sm danger" data-act="pkg-del" data-id="${k.id}" ${ro?'disabled':''}>删除</button></div>
+          ${rowMore([
+            {act:'pkg-edit', id:k.id, label: ro?'查看内容':'管理内容'},
+            {act:'pkg-del', id:k.id, label:'删除', danger:true, disabled: !!ro},
+          ])}
         </div>`;}).join('') || '<div class="empty"><p>暂无目的地包</p></div>'}</div>`;
   }
   return `<div class="page-hd"><div><div class="page-title">目的地池</div>
@@ -486,7 +628,10 @@ function poolTable(list, ro){
       <td><div class="row-acts">
         <button class="btn sm" data-act="pool-edit" data-id="${p.id}">${ro?'查看':'编辑'}</button>
         <button class="btn sm danger" data-act="pool-del" data-id="${p.id}" ${ro?'disabled style="opacity:.25"':''}>删除</button>
-      </div></td></tr>`;}).join('')
+      </div>${rowMore([
+        {act:'pool-edit', id:p.id, label: ro?'查看':'编辑'},
+        {act:'pool-del', id:p.id, label:'删除', danger:true, disabled: !!ro},
+      ])}</td></tr>`;}).join('')
       || `<tr><td colspan="${ck?7:6}"><div class="empty"><p>没有匹配的条目</p></div></td></tr>`}
     </tbody></table>`;
 }
@@ -542,6 +687,10 @@ function viewVpn(){
           + (tags.length>3?`<span class="tag more">+${tags.length-3}</span>`:'')
           : '<span class="empty-mini">尚未授权任何目的地</span>'}</div></div>
       <div class="ucard-ft"><span>${n} 个可访问目的地</span>
+        ${rowMore([
+          {act:'vpn-conf', id:v.id, label:'客户端配置'},
+          {act:'vpn-del', id:v.id, label:'删除用户', danger:true},
+        ])}
         <span class="badge ${(v.status===1||v.status==='on')?'ok':''}">${(v.status===1||v.status==='on')?'正常':'停用'}</span></div>
     </div>`;}).join('');
   return `<div class="page-hd"><div><div class="page-title">VPN 配置</div>
@@ -572,6 +721,10 @@ function renderVpnCards(){
           +(tags.length>3?`<span class="tag more">+${tags.length-3}</span>`:'')
           :'<span class="empty-mini">尚未授权任何目的地</span>'}</div></div>
       <div class="ucard-ft"><span>${n} 个可访问目的地</span>
+        ${rowMore([
+          {act:'vpn-conf', id:v.id, label:'客户端配置'},
+          {act:'vpn-del', id:v.id, label:'删除用户', danger:true},
+        ])}
         <span class="badge ${(v.status===1||v.status==='on')?'ok':''}">${(v.status===1||v.status==='on')?'正常':'停用'}</span></div>
     </div>`;}).join('') || '<div class="empty"><p>没有匹配的用户</p></div>';
 }
@@ -760,17 +913,19 @@ const ACT = {
     document.getElementById('avatarMenu')?.remove();
     if(ui.sel===sel && ui.route===k) return;
     ui.route=k; ui.sel=sel; ui.batch=false; ui.picked.clear(); saveUi();
-    [...document.querySelectorAll('.dock-nav .dock-item')].forEach(i=>i.classList.toggle('sel', i.dataset.sel===sel));
+    [...document.querySelectorAll('.dock-item, .mbar-item')].forEach(i=>i.classList.toggle('sel', i.dataset.sel===sel));
     moveCursorTo();
-    const sp=$('.strip-path b'); if(sp) sp.textContent=(MODULES.find(m=>m.k===k)||{n:'权限设置'}).n;
+    const name=currentPathName();
+    const sp=$('.strip-path b'); if(sp) sp.textContent=name;
+    const mt=$('.mtop-title'); if(mt) mt.textContent=name;
     refresh(); if(ui.route==='audit'){ bindLogFilters(); loadLogs(); } },
   'dock-toggle': ()=>{ ui.dockOpen=!ui.dockOpen; document.body.classList.toggle('dock-open', ui.dockOpen);
     requestAnimationFrame(moveCursorTo); },
-  'avatar-toggle': ()=> toggleAvatarMenu(),
+  'avatar-toggle': el=> toggleAvatarMenu(el),
   'theme-toggle': ()=>{
     setTheme(THEME==='light' ? 'dark' : 'light');
-    const sw = document.querySelector('.am-switch[data-act="theme-toggle"]');
-    if(sw){ sw.classList.toggle('on', THEME==='light'); sw.setAttribute('aria-checked', String(THEME==='light')); }
+    document.querySelectorAll('.am-switch[data-act="theme-toggle"]').forEach(sw=>{
+      sw.classList.toggle('on', THEME==='light'); sw.setAttribute('aria-checked', String(THEME==='light')); });
     const lt = document.querySelector('.login-theme');
     if(lt){ lt.innerHTML = `${THEME==='light'?ICON.moon:ICON.sun}`; }
   },
@@ -779,8 +934,8 @@ const ACT = {
     if(!inp){ inp=document.createElement('input'); inp.type='file'; inp.id='avatarFile';
       inp.accept='image/png,image/jpeg,image/webp'; inp.style.display='none'; document.body.appendChild(inp);
       inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(!f) return;
-        if(f.size>2*1024*1024){ toast('图片不能超过 2MB','err'); return; }
-        const rd=new FileReader(); rd.onload=()=>uploadAvatar(String(rd.result)); rd.readAsDataURL(f); }; }
+        if(f.size>5*1024*1024){ toast('图片不能超过 5MB','err'); return; }
+        const rd=new FileReader(); rd.onload=()=>openAvatarCrop(String(rd.result)); rd.readAsDataURL(f); }; }
     inp.click();
   },
   'reload': async ()=>{ document.getElementById('avatarMenu')?.remove();
@@ -866,6 +1021,7 @@ const ACT = {
     confirmBox('删除账号',`确定删除 <b>${esc(a.name)}</b>（${esc(a.login)}）吗？该操作不可撤销。`, async ()=>{
       await api('DELETE','accounts/'+a.id); await loadState();
       refresh(); toast('已删除'); }); },
+  'row-more': el=>{ try{ openActionMenu(el, JSON.parse(el.dataset.acts||'[]')); }catch{} },
 
   /* 目的地 */
   'pool-new': ()=> modal({title:'新增 IP-端口', body:poolForm(null), onOk: async ()=>{
@@ -957,12 +1113,15 @@ function ripple(host, e){
 }
 document.addEventListener('click', e=>{
   if(e.target.closest('[data-close]')) return closeLayer();
-  if(e.target.matches('[data-backdrop]')) return closeLayer();
+  if(e.target.matches('[data-backdrop]')){
+    if(isMobile() && layerHasUnsavedInput()) return;   // 移动端：二级菜单内有未保存输入时不关闭
+    return closeLayer();
+  }
   if(!e.target.closest('.combo')) closeCombos();
   const t=e.target.closest('[data-act]'); if(!t) return;
   const fn=ACT[t.dataset.act];
   if(fn){
-    const host=t.closest('.btn,.nav-item,.tab,.icon-btn,.dock-expand,.dock-item,.dock-idwrap,.dock-avatar');
+    const host=t.closest('.btn,.nav-item,.tab,.icon-btn,.dock-expand,.dock-item,.dock-idwrap,.dock-avatar,.mbar-item,.profile-avatar');
     if(host && !host.disabled) ripple(host, e);
     e.stopPropagation(); fn(t,e);
   }
@@ -987,9 +1146,9 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeCombos(); c
   $('#app').hidden=false;
   if(me){
     const saved = loadUi();
-    const okRoute = k => !!MODULES.find(m=>m.k===k && canView(m.k));
+    const okRoute = k => k==='settings' || !!MODULES.find(m=>m.k===k && canView(m.k));
     ui.route = okRoute(saved.route) ? saved.route : (MODULES.find(m=>canView(m.k))||MODULES[0]).k;
-    ui.sel   = (saved.sel==='gear' && ui.route==='account') ? 'gear' : ui.route;
+    ui.sel   = (saved.sel==='gear') ? 'gear' : ui.route;
     if(saved.destTab==='pool'||saved.destTab==='pkg') ui.destTab = saved.destTab;
     if(saved.auditTab==='access'||saved.auditTab==='audit') ui.auditTab = saved.auditTab;
   }
