@@ -143,6 +143,15 @@ body.theme-dark .demo-banner code{background:rgba(0,0,0,.3);color:#ffe3ad}
 /* 两列表单行（新增/编辑账号、VPN、目的地包等弹窗内的成对字段） */
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
 .grid2>.field{margin-bottom:0}
+/* 密码框 + 显示/隐藏按钮 */
+.pw-wrap{position:relative;display:flex;align-items:center}
+.field .pw-wrap input{padding-right:40px}
+.pw-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  width:30px;height:30px;display:flex;align-items:center;justify-content:center;
+  border:none;background:transparent;color:var(--dim);cursor:pointer;border-radius:8px;padding:0;line-height:0}
+.pw-eye:hover{color:var(--txt);background:rgba(128,128,128,.14)}
+.pw-eye svg{width:18px;height:18px;display:block}
+.pw-eye.on{color:var(--accent)}
 /* WireGuard 客户端配置展示框 */
 .wg-conf{width:100%;background:var(--input-bg);border:1px solid var(--line);color:var(--txt);
   padding:10px 12px;border-radius:10px;outline:none;resize:vertical;

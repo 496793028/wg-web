@@ -13,9 +13,9 @@
 
 ---
 
-> 📌 **验证状态（2026-09-14 更新）**
+> 📌 **验证状态（2026-09-15 更新）**
 >
-> - **端到端已打通**：在真实网关 **192.168.3.70（Rocky Linux 10 · 内核态 WireGuard · firewalld + Docker）** 完成全链路实测 —— netns 内起真实 WireGuard 客户端连本机 `51820`：**握手成功**；授权目标（`192.168.3.27:100/TCP`）被 **ALLOW**、未授权端口与 ICMP 被 **DENY**；临时授权一个开放端口后**连接成功**，抓包见完整三次握手且源地址被 **masquerade** 成网关本机 IP（已收到对端 SSH banner）。此前在 192.168.3.39（CentOS 7.9 + 用户态 wireguard-go）做过控制面验证。
+> - **端到端已打通**：在真实网关（Rocky Linux 10 · 内核态 WireGuard · firewalld + Docker）完成全链路实测 —— netns 内起真实 WireGuard 客户端连本机 `51820`：**握手成功**；授权目标（`<内网目标主机 IP>:100/TCP`）被 **ALLOW**、未授权端口与 ICMP 被 **DENY**；临时授权一个开放端口后**连接成功**，抓包见完整三次握手且源地址被 **masquerade** 成网关本机 IP（已收到对端 SSH banner）。此前在另一台测试机（CentOS 7.9 + 用户态 wireguard-go）做过控制面验证。
 > - **管控执行面**：网关 agent `gateway/vpn-sync.py` 依据平台下发的授权，生成 nftables 规则（`iifname "wg0"` **默认拒绝** + 按 `源VPN IP → 目的IP:端口/协议` 放行）并 `wg syncconf` 热加载 peer。
 > - **数据库后端（本次新增）**：**MySQL（默认）与 SQLite 双后端**均可运行（`.env` 里 `DB_DRIVER` 一行切换，差异封装在 `server/dialects/`）。SQLite 端到端 **30/30 通过**、MySQL 对真实库只读校验 **20/20 通过**；生产环境已切换至 SQLite 并完成存量数据迁移（两端**逐表行数一致**）。
 > - **流级审计数据面**：nftables 记账日志（前缀 `vpn-flow ALLOW` / `vpn-flow DENY`）→ rsyslog 落盘 → `vpn-logship` 解析 → `POST /api/ingest`。已用真实内核日志行闭合验证到接口契约（含 token 鉴权）。
@@ -61,7 +61,7 @@ VPN 开通之后，「**谁能连、能连到哪台机器的哪个端口**」往
 | **授权双向对账** | 平台删除用户 → 网关侧 peer 自动移除，**不留僵尸 peer** |
 | **全链路审计** | 管理员所有写操作落库（操作人 / 动作 / 对象 / 来源 IP）；用户访问记录可按人、目标、端口、结果、时间筛选（流日志需网关 `vpn-logship` 回传，参考最小实现见 `verify/vpn-logship-min.py`，不随正式发布分发） |
 | **数据库可切换** | `DB_DRIVER=mysql`（默认，独立/远程库）或 `sqlite`（单机单文件、零依赖，用 Node 内置 `node:sqlite`）；业务代码只依赖方言层，不含任何库专有语法 |
-| **企业级安全基线** | scrypt 口令哈希、服务端可吊销会话、登录失败锁定、全程参数化 SQL、CSRF 防护、HTTPS 就绪 |
+| **企业级安全基线** | scrypt 口令哈希、服务端可吊销会话、登录失败锁定（连续 5 次锁 15 分钟，**超级管理员除外**）、全程参数化 SQL、CSRF 防护、HTTPS 就绪 |
 | **零构建前端** | 纯静态 `index.html` + `app.js` + `styles.css`，双主题（深色 / 浅色），无打包步骤 |
 
 ## 架构
@@ -177,7 +177,7 @@ cd server && npm run selftest
 `.env` 的 `ADMIN_INIT_PWD` **默认为空**。留空时，`npm run init` 会以「口令未设置」状态创建 `admin` 账号，
 **首次打开平台会自动进入初始化页**，由你在网页上设定口令。
 
-若你选择在 `.env` 中预设（适合自动化部署），请务必换成自己的强口令：
+若你选择在 `.env` 中预设（适合自动化部署），请务必换成自己的强口令；**预设后平台启动即不会弹出网页设置口令页，直接用该口令登录**。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |

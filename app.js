@@ -57,6 +57,8 @@ const ICON = {
   logout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12H3M11 8l-4 4 4 4"/><path d="M9 4h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H9"/></svg>',
   sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+  eye:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>',
+  eyeOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 10.7a3 3 0 0 0 4.2 4.2"/><path d="M9.9 5.2A9.6 9.6 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.3 4M6.1 6.1A17 17 0 0 0 2 12s3.5 7 10 7a9.6 9.6 0 0 0 3-.5"/></svg>',
 };
 
 const MODULES = [
@@ -243,10 +245,8 @@ function setupHTML(){
     <p class="setup-desc">系统尚未设置管理员口令。请为超级管理员账号 <code>admin</code>
       设定一个强口令，设定完成后即可直接进入平台。</p>
     <form id="setupForm" autocomplete="off">
-      <div class="field"><label>新口令</label>
-        <input name="p" type="password" autocomplete="new-password" placeholder="至少 6 位，含大小写字母与数字"></div>
-      <div class="field"><label>确认口令</label>
-        <input name="p2" type="password" autocomplete="new-password" placeholder="再次输入相同口令"></div>
+      ${pwField('新口令','p',{ac:'new-password', ph:'至少 6 位，含大小写字母与数字'})}
+      ${pwField('确认口令','p2',{ac:'new-password', ph:'再次输入相同口令', last:true})}
       <div class="login-err" id="setupErr"></div>
       <button class="btn primary block" type="submit">设定口令并进入</button></form>
     <div class="demo-tip"><b>口令要求</b>：至少 6 位，且同时包含大写字母、小写字母与数字。<br>
@@ -735,6 +735,20 @@ function confirmBox(title, msg, onYes, okText='确认删除'){
   const ok = $('#layer [data-ok]'); if(ok) ok.className='btn danger';
 }
 function readForm(){ const o={}; $$('#layer [name]').forEach(e=>o[e.name]=e.value.trim()); return o; }
+/* 密码输入框（带「显示/隐藏」眼睛按钮）。opts: {ac,ph,val,hint,last} */
+function pwField(label, name, opts){
+  opts = opts || {};
+  const ac  = opts.ac  ? ` autocomplete="${opts.ac}"` : '';
+  const ph  = opts.ph  ? ` placeholder="${opts.ph}"`   : '';
+  const val = opts.val ? ` value="${opts.val}"`       : '';
+  const hint= opts.hint? `<div class="hint">${opts.hint}</div>` : '';
+  const lb  = opts.last ? ' style="margin-bottom:0"'  : '';
+  return `<div class="field"${lb}><label>${label}</label>
+    <div class="pw-wrap">
+      <input name="${name}" type="password"${ac}${ph}${val} spellcheck="false">
+      <button type="button" class="pw-eye" data-act="pw-toggle" tabindex="-1" title="显示密码" aria-label="显示密码">${ICON.eye}</button>
+    </div>${hint}</div>`;
+}
 const segVal = k => { const b=$(`#layer .seg[data-seg="${k}"] .on`); return b?b.dataset.v:'none'; };
 const comboVal = id => (COMBOS[id] ? COMBOS[id].value : null);
 function bindSeg(){ $$('#layer .seg').forEach(s=>s.querySelectorAll('button').forEach(b=>{
@@ -772,17 +786,26 @@ const ACT = {
   },
   'reload': async ()=>{ document.getElementById('avatarMenu')?.remove();
     await loadState(); if(ui.route==='audit') loadLogs(); refresh(); toast('已刷新'); },
+  'pw-toggle': el=>{
+    const wrap = el.closest('.pw-wrap'); if(!wrap) return;
+    const inp = wrap.querySelector('input'); if(!inp) return;
+    const show = inp.type === 'password';
+    inp.type = show ? 'text' : 'password';
+    el.classList.toggle('on', show);
+    el.innerHTML = show ? ICON.eyeOff : ICON.eye;
+    el.title = show ? '隐藏密码' : '显示密码';
+    el.setAttribute('aria-label', el.title);
+  },
   'self-pw': ()=>{ document.getElementById('avatarMenu')?.remove();
     modal({title:'修改我的密码',
-      body:`<div class="field"><label>原密码</label>
-          <input name="old" type="password" autocomplete="current-password"></div>
-        <div class="field" style="margin-bottom:0"><label>新密码</label>
-          <input name="next" type="password" autocomplete="new-password">
-          <div class="hint">服务端策略：≥6 位，且同时包含大小写字母与数字。</div></div>`,
+      body:`${pwField('原密码','old',{ac:'current-password'})}
+        ${pwField('新密码','next',{ac:'new-password',hint:'服务端策略：≥6 位，且同时包含大小写字母与数字。'})}
+        ${pwField('确认新密码','next2',{ac:'new-password',last:true})}`,
       okText:'修改',
       onOk: async ()=>{
         const g=readForm();
         if(!g.old || !g.next){ toast('请填写原密码与新密码','err'); return false; }
+        if(g.next !== g.next2){ toast('两次输入的新密码不一致','err'); return false; }
         try{ await api('POST','auth/password',{old:g.old,next:g.next}); toast('密码已修改'); }
         catch(e){ toast(e.message,'err'); return false; }
       }}); },
