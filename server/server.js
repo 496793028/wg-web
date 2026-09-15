@@ -537,6 +537,26 @@ app.get('/api/gateway/peers', asyncHandler(async (req, res) => {
     return res.status(401).json({ error: 'invalid token' });
   res.json({ peers: await peerRows() });
 }));
+/* 汇总某用户被授权的目标 IP（/32），用于客户端 AllowedIPs 自动路由。
+   复用与 /api/gateway/grants 相同的 pool/pkg 展开逻辑。 */
+async function grantedDestIps(vpnId) {
+  const gs = await q(`SELECT kind, ref_id FROM vpn_grant WHERE vpn_id=?`, [vpnId]);
+  const ips = new Set();
+  for (const g of gs) {
+    if (g.kind === 'pool') {
+      const p = await q1(`SELECT ip FROM dest_pool WHERE id=?`, [g.ref_id]);
+      if (p && p.ip) ips.add(p.ip);
+    } else {
+      const items = await q(`SELECT pool_id FROM dest_package_item WHERE package_id=?`, [g.ref_id]);
+      for (const it of items) {
+        const p = await q1(`SELECT ip FROM dest_pool WHERE id=?`, [it.pool_id]);
+        if (p && p.ip) ips.add(p.ip);
+      }
+    }
+  }
+  return [...ips];
+}
+
 app.get('/api/vpn/:id/conf', attach, need('vpn', 'r'), async (req, res) => {
   const v = await q1(`SELECT name, vpn_ip, privkey FROM vpn_account WHERE id=?`, [Number(req.params.id)]);
   if (!v) return res.status(404).json({ error: '用户不存在' });
@@ -545,6 +565,17 @@ app.get('/api/vpn/:id/conf', attach, need('vpn', 'r'), async (req, res) => {
   const ep = process.env.WG_ENDPOINT || '';
   if (!priv || !pub || !ep)
     return res.status(400).json({ error: '缺少配置要素：请设置 WG_ENDPOINT 与网关公钥（WG_SERVER_PUB 或 server.pub），且该用户已有密钥' });
+  // AllowedIPs = env 基础路由 + 该用户被授权的目标 IP(/32)。
+  // 这样在网页授权某内网目标后，客户端会自动把该目标路由进隧道，
+  // 不再需要手动在 WG_CLIENT_ALLOWED 里列出所有内网段（否则跨子网目标连不通）。
+  const allowParts = [];
+  for (const p of String(process.env.WG_CLIENT_ALLOWED || '10.100.0.0/24, 10.0.0.0/8').split(',')) {
+    const t = p.trim(); if (t) allowParts.push(t);
+  }
+  for (const ip of await grantedDestIps(Number(req.params.id))) allowParts.push(ip + '/32');
+  const _seen = new Set(); const allowIps = [];
+  for (const x of allowParts) { if (!_seen.has(x)) { _seen.add(x); allowIps.push(x); } }
+
   const conf = `[Interface]
 PrivateKey = ${priv}
 Address = ${v.vpn_ip}/24
@@ -553,7 +584,7 @@ ${process.env.WG_CLIENT_DNS ? `DNS = ${process.env.WG_CLIENT_DNS}\n` : ''}
 [Peer]
 PublicKey = ${pub}
 Endpoint = ${ep}
-AllowedIPs = ${process.env.WG_CLIENT_ALLOWED || '10.100.0.0/24, 10.0.0.0/8'}
+AllowedIPs = ${allowIps.join(', ')}
 PersistentKeepalive = 25
 `;
   res.json({ name: v.name, vpn_ip: v.vpn_ip, conf });

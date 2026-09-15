@@ -102,13 +102,13 @@ PORT_SPEC_RE = re.compile(r'^[0-9,\-]+$')
 def _port_match(spec):
     """把端口规格转成 nft 匹配片段（返回前缀，含前导空格）。
 
-    '' 或 None  -> ''            表示全部端口（不加 dport 条件）
+    '' 或 None  -> ' dport { 1-65535 }'  表示全部端口（显式全端口；避免光秃秃的 `tcp` 紧挨 `ct` 被旧版 nft 报 syntax error）
     '9,100-200' -> ' dport { 9, 100-200 }'
     非法字符     -> None          调用方跳过该条
     """
     spec = ('' if spec is None else str(spec)).strip()
     if not spec:
-        return ''
+        return ' dport { 1-65535 }'
     if not PORT_SPEC_RE.match(spec):
         return None
     segs = [s.strip() for s in spec.split(',') if s.strip()]

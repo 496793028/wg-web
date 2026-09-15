@@ -147,7 +147,6 @@ function bindSF(){
   $$('[data-sf]').forEach(w=>{
     const i = w.querySelector('input'); if(!i || i._b) return; i._b=1;
     i.oninput = ()=>{ w.classList.toggle('has', !!i.value); const f=SF[w.dataset.sf]; if(f) f(i.value); };
-    i.onfocus = ()=>{ w.classList.add('pulse'); setTimeout(()=>w.classList.remove('pulse'),500); };
   });
 }
 

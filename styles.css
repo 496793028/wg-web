@@ -375,10 +375,6 @@ tbody tr:last-child td{border-bottom:none}
 .sfield .s-clear{position:absolute;right:8px;width:18px;height:18px;border:none;border-radius:50%;background:var(--line2);
   color:var(--txt);font-size:13px;line-height:1;display:none;place-items:center}
 .sfield.has .s-clear{display:grid}
-.sfield .s-pulse{position:absolute;inset:0;background:radial-gradient(circle at center,rgba(76,141,255,.25),transparent 70%);
-  opacity:0;pointer-events:none}
-.sfield.pulse .s-pulse{animation:sfpulse .5s ease-out}
-@keyframes sfpulse{from{opacity:1}to{opacity:0}}
 
 /* ============ 可搜索下拉 ============ */
 .combo{position:relative}
