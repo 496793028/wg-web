@@ -468,8 +468,13 @@ async function peerRows() {
   return q(`SELECT name, vpn_ip, pubkey FROM vpn_account
     WHERE status=1 AND pubkey IS NOT NULL AND pubkey<>'' ORDER BY id`);
 }
-const renderPeers = vs => vs.map(v =>
-  `# ${v.name} ${v.vpn_ip}\n[Peer]\nPublicKey = ${v.pubkey}\nAllowedIPs = ${v.vpn_ip}/32`).join('\n\n');
+/* wg 配置文件必须是纯 ASCII：中文会导致解析 / 客户端导入失败。
+   所以 peer 注释只保留 VPN IP，仅当姓名本身是 ASCII 时才附在括号里（供人工辨识）。 */
+const asciiName = s => String(s || '').replace(/[^\x20-\x7E]/g, '').replace(/[^\w.-]+/g, '');
+const renderPeers = vs => vs.map(v => {
+  const n = asciiName(v.name);
+  return `# ${v.vpn_ip}${n ? ` (${n})` : ''}\n[Peer]\nPublicKey = ${v.pubkey}\nAllowedIPs = ${v.vpn_ip}/32`;
+}).join('\n\n');
 
 /** 同机模式：把托管块写回 wg0.conf 并热加载（数组传参，不经 shell，防注入） */
 async function applyLocal() {
@@ -585,6 +590,7 @@ app.get('/api/vpn/:id/conf', attach, need('vpn', 'r'), async (req, res) => {
   const _seen = new Set(); const allowIps = [];
   for (const x of allowParts) { if (!_seen.has(x)) { _seen.add(x); allowIps.push(x); } }
 
+  /* 客户端 .conf 必须是纯 ASCII：含中文会导致 WireGuard 客户端导入失败（兜底再滤一次） */
   const conf = `[Interface]
 PrivateKey = ${priv}
 Address = ${v.vpn_ip}/24
@@ -595,7 +601,7 @@ PublicKey = ${pub}
 Endpoint = ${ep}
 AllowedIPs = ${allowIps.join(', ')}
 PersistentKeepalive = 25
-`;
+`.replace(/[^\t\n\r\x20-\x7E]/g, '');
   res.json({ name: v.name, vpn_ip: v.vpn_ip, conf });
 });
 app.put('/api/vpn/:id/grants', attach, need('vpn', 'rw'), async (req, res) => {

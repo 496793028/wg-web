@@ -901,9 +901,13 @@ async function showVpnConf(id, note){
       if(b) b.onclick=()=>{ const t=document.getElementById('wgConf'); t.select();
         navigator.clipboard?.writeText(t.value); toast('已复制'); }; },
     onOk: ()=>{ const t=document.getElementById('wgConf'); if(!t) return;
+      /* .conf 必须纯 ASCII：WireGuard 客户端不接受含中文的配置文件/文件名（会导入失败）。
+         文件名用「ASCII 化的姓名」，取不到就退回 VPN IP；内容再兜底滤一次非 ASCII。 */
+      const ascii = String(r.name||'').replace(/[^\x20-\x7E]/g,'').replace(/[^\w.-]+/g,'');
+      const text = t.value.replace(/[^\t\n\r\x20-\x7E]/g,'');
       const a=document.createElement('a');
-      a.href=URL.createObjectURL(new Blob([t.value],{type:'text/plain;charset=utf-8'}));
-      a.download=`${r.name}-wg.conf`; a.click(); toast('已下载'); } });
+      a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));
+      a.download=`${ascii || r.vpn_ip}-wg.conf`; a.click(); toast('已下载'); } });
 }
 function grantListHTML(){
   const q = ui.q.grant.trim().toLowerCase(), sel = ui.editGrants;
