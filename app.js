@@ -613,7 +613,7 @@ function viewDest(){
     body = `<div class="dest-toolbar">
         ${sfield('sf_pool', ui.q.pool, v=>{ ui.q.pool=v; renderPoolTable(); },'搜索名称 / IP / 端口')}
         <button class="btn primary" data-act="pool-new" ${ro?'disabled':''}>+ 添加</button>
-        <button class="btn ${ui.batch?'danger':''}" data-act="pool-batch" ${ro?'disabled':''}>${ui.batch?'退出批量':'批量删除'}</button>
+        <button class="btn ${ui.batch?'danger':''}" data-act="pool-batch" ${ro?'disabled':''}>${ui.batch?'退出批量':'批量管理'}</button>
       </div>
       ${ui.batch?`<div class="batch-bar"><span>已选中 <b>${ui.picked.size}</b> 个</span>
         <button class="btn sm" data-act="pool-selall">全选</button>
@@ -712,8 +712,7 @@ function ucardHTML(v, i){
       data-batchpick="${v.id}" style="animation-delay:${i*40}ms">
     <div class="cbox ucard-pick ${ui.picked.has(String(v.id))?'on':''}" data-act="vpn-pick" data-id="${v.id}">${ui.picked.has(String(v.id))?ICON.check:''}</div>
     <div class="ucard-top"><div class="avatar" style="background:${colorOf(v.name)}">${esc(v.name.slice(0,1))}</div>
-      <div style="min-width:0"><div class="ucard-name">${esc(v.name)}</div><div class="ucard-ip">${esc(v.ip)}</div></div>
-      ${black?`<span class="mode-badge">黑名单</span>`:''}</div>
+      <div style="min-width:0"><div class="ucard-name">${esc(v.name)}</div><div class="ucard-ip">${esc(v.ip)}</div></div></div>
     <div class="ucard-body"><div class="ucard-tags">
       ${tags.length ? tags.slice(0,3).map(t=>`<span class="tag ${t.cls}">${esc(t.t)}</span>`).join('')
         + (tags.length>3?`<span class="tag more">+${tags.length-3}</span>`:'')
@@ -723,7 +722,10 @@ function ucardHTML(v, i){
         {act:'vpn-conf', id:v.id, label:'客户端配置'},
         {act:'vpn-del', id:v.id, label:'删除用户', danger:true},
       ])}
-      <span class="badge ${(v.status===1||v.status==='on')?'ok':''}">${(v.status===1||v.status==='on')?'正常':'停用'}</span></div>
+      <div class="ft-meta">
+        ${black?`<span class="mode-badge">黑名单</span>`:''}
+        <span class="badge ${(v.status===1||v.status==='on')?'ok':''}">${(v.status===1||v.status==='on')?'正常':'停用'}</span>
+      </div></div>
   </div>`;
 }
 
@@ -737,7 +739,7 @@ function viewVpn(){
       <div class="page-desc">按真实姓名分配 VPN 账号；点击卡片进入可视化授权页勾选可访问的目的地</div></div>
     <div class="hd-actions">
       <div style="width:216px">${sfield('sf_vpn', ui.q.vpn, v=>{ ui.q.vpn=v; renderVpnCards(); },'搜索姓名 / IP')}</div>
-      <button class="btn ${ui.batch?'danger':''}" data-act="vpn-batch" ${ro?'disabled':''}>${ui.batch?'退出批量':'批量删除'}</button>
+      <button class="btn ${ui.batch?'danger':''}" data-act="vpn-batch" ${ro?'disabled':''}>${ui.batch?'退出批量':'批量管理'}</button>
       <button class="btn primary" data-act="vpn-new" ${ro?'disabled':''}>+ 新增用户</button></div></div>
     ${ro?'<div class="ro-bar">当前账号对该模块只有查看权限。</div>':''}
     <div class="card-grid ${ui.batch?'batch-on':''}" id="vpnGrid">${cards || '<div class="empty"><p>没有匹配的用户</p></div>'}</div>
@@ -1205,12 +1207,11 @@ function ripple(host, e){
   r.style.left=(e.clientX-rc.left-d/2)+'px'; r.style.top=(e.clientY-rc.top-d/2)+'px';
   host.appendChild(r); setTimeout(()=>r.remove(),640);
 }
-/* 长按条目（触摸手势 / 移动端）：自动进入批量删除并勾选该条。
-   长按后吞掉尾随的 click —— 否则「进入批量」后这次点击会被当成点选，
-   把刚勾上的条目又取消（批量态下 vpn-open 会转为 vpn-pick 切换）。 */
+/* 长按条目：进入「批量管理」并勾选被长按的条目（等同于先点「批量管理」按钮、再点选该条）。
+   长按后吞掉尾随的 click —— 否则进入批量态后这次点击会变成一次「点选切换」，
+   把刚勾上的条目又取消（批量态下 vpn-open 会转为 vpn-pick）。 */
 let lpTimer=null, lpStart=null, lpFired=false;
 document.addEventListener('pointerdown', e=>{
-  if(e.pointerType!=='touch' && !isMobile()) return;
   const el = e.target.closest('[data-batchpick]'); if(!el) return;
   if(e.target.closest('button,a,input,select,textarea,.cbox,.sfield,[data-act]')) return;
   lpStart={x:e.clientX,y:e.clientY};
@@ -1219,7 +1220,7 @@ document.addEventListener('pointerdown', e=>{
     if(!ui.batch){ ui.batch=true; ui.picked.clear(); }
     ui.picked.add(String(el.dataset.batchpick));
     refresh();
-    toast('已进入批量删除，可继续点选其它条目');
+    toast('已进入批量管理，可继续点选其它条目');
   }, 500);
 });
 const lpClear=()=>{ if(lpTimer){ clearTimeout(lpTimer); lpTimer=null; } lpStart=null; };
