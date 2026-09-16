@@ -345,14 +345,23 @@ function shell(){
   return dock + mtop + mbar + main;
 }
 
+/* 高亮块「首次定位」必须瞬移就位：整屏重渲染后元素是全新的，若直接设值，
+   它会从 CSS 初始位置（0 / 左上角）过渡过来，看起来像「从外部飞入」。
+   首帧之后的变化才走过渡动画（滑动效果）。 */
+function placeCursor(el, apply){
+  if(!el._placed){ el._placed=1; el.style.transition='none'; apply(); void el.offsetWidth; el.style.transition=''; }
+  else apply();
+}
 function moveCursorTo(){
   const cur = document.getElementById('dockCursor'); if(!cur) return;
   const el = document.querySelector('.dock-item.sel'); if(!el) return;
   const cs = getComputedStyle(document.body);
   const rail = parseFloat(cs.getPropertyValue('--rail')) || 80;
   const labels = parseFloat(cs.getPropertyValue('--labels')) || 0;
-  cur.style.width = (rail + labels - 28) + 'px';   // 自定义属性即时翻转，取目标宽度（不受过渡动画影响）
-  cur.style.transform = `translateY(${el.offsetTop}px)`;
+  placeCursor(cur, ()=>{
+    cur.style.width = (rail + labels - 28) + 'px';   // 自定义属性即时翻转，取目标宽度（不受过渡动画影响）
+    cur.style.transform = `translateY(${el.offsetTop}px)`;
+  });
 }
 /* 竖屏底栏：滑动圆角方形高亮，跟随选中项平移（与侧栏 .dock-cursor 同款动画 + 颜色变化） */
 function moveMbarCursor(){
@@ -360,9 +369,11 @@ function moveMbarCursor(){
   const bar = cur.parentElement; if(!bar) return;
   const el = bar.querySelector('.mbar-item.sel'); if(!el) return;
   const br = bar.getBoundingClientRect(), er = el.getBoundingClientRect();
-  cur.style.width = er.width + 'px';
-  cur.style.height = er.height + 'px';
-  cur.style.transform = `translate(${er.left - br.left - bar.clientLeft}px, ${er.top - br.top - bar.clientTop}px)`;
+  placeCursor(cur, ()=>{
+    cur.style.width = er.width + 'px';
+    cur.style.height = er.height + 'px';
+    cur.style.transform = `translate(${er.left - br.left - bar.clientLeft}px, ${er.top - br.top - bar.clientTop}px)`;
+  });
 }
 /* 横竖屏切换 / 窗口尺寸变化后必须重新量一次两个滑动高亮：
    竖屏时侧栏 display:none、横屏时底栏 display:none，隐藏元素的 offset/rect 全是 0，
@@ -396,22 +407,17 @@ function moveTabCursors(){
     const x=on.getBoundingClientRect().left - br.left - tb.clientLeft;
     const y=on.getBoundingClientRect().top  - br.top  - tb.clientTop;
     if(tabFlipFrom){
-      const f=tabFlipFrom; tabFlipFrom=null;
+      const f=tabFlipFrom; tabFlipFrom=null; cur._placed=1;
       cur.style.transition='none';                       // 先瞬移回旧位置（相对容器）
       cur.style.width=f.w+'px'; cur.style.height=f.h+'px';
       cur.style.transform=`translate(${f.x}px, ${y}px)`; // 纵向直接用目标位置 → 只做纯水平滑动，绝不「从上方飞入」
       void cur.offsetWidth;                              // 强制回流：把旧位置落定为过渡起点
       cur.style.transition='';
-    }else if(!cur.style.width){                          // 首次定位：直接就位，避免从左上角飞入
-      cur.style.transition='none';
+    }
+    placeCursor(cur, ()=>{
       cur.style.width=w+'px'; cur.style.height=h+'px';
       cur.style.transform=`translate(${x}px, ${y}px)`;
-      void cur.offsetWidth;
-      cur.style.transition='';
-      return;
-    }
-    cur.style.width=w+'px'; cur.style.height=h+'px';
-    cur.style.transform=`translate(${x}px, ${y}px)`;
+    });
   });
 }
 
