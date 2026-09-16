@@ -943,7 +943,7 @@ function viewAudit(){
       <div style="min-width:150px">${combo('c_fdays',{label:'时间范围',value:ui.f.days,ph:'全部',searchable:false,
         options:[{v:'',t:'全部'},{v:'1',t:'最近 1 天'},{v:'7',t:'最近 7 天'},{v:'30',t:'最近 30 天'}],
         onPick:v=>{ ui.f.days=v; refresh(); loadLogs(); }})}</div>
-      <button class="btn" data-act="fclear">重置</button></div>
+      <div class="field"><button class="btn" data-act="fclear">重置</button></div></div>
     <div class="tbl-wrap" id="logTbl">${logTblHTML()}</div>
     </div>`;
 }
