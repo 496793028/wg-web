@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS dest_pool (
   name       TEXT    NOT NULL,
   ip         TEXT    NOT NULL,
   port       TEXT    NOT NULL DEFAULT '',
-  proto      TEXT    NOT NULL DEFAULT 'TCP' CHECK (proto IN ('TCP','UDP')),
+  proto      TEXT    NOT NULL DEFAULT 'TCP',
   descr      TEXT    NULL,
   created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now','localtime'))
 );

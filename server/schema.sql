@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS dest_pool (
   name       VARCHAR(64)  NOT NULL,
   ip         VARCHAR(45)  NOT NULL,
   port       VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '端口规格：空=全部端口；支持单端口/区间/逗号分隔，如 9,100-200',
-  proto      ENUM('TCP','UDP') NOT NULL DEFAULT 'TCP',
+  proto      VARCHAR(16) NOT NULL DEFAULT 'TCP',
   descr      VARCHAR(128) NULL,
   created_at DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   UNIQUE KEY uk_endpoint (ip, port, proto)

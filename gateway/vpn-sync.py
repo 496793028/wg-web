@@ -101,6 +101,13 @@ def render_wg_block(peers):
 PORT_SPEC_RE = re.compile(r'^[0-9,\-]+$')
 
 
+def _protos(raw):
+    """协议可多选：'TCP' / 'UDP' / 'TCP,UDP' -> ['tcp'] / ['udp'] / ['tcp','udp']（非法值丢弃，兜底 tcp）"""
+    ps = [p.strip().lower() for p in str(raw or 'TCP').split(',') if p.strip()]
+    ps = [p for p in ps if p in ('tcp', 'udp')]
+    return ps or ['tcp']
+
+
 def _port_match(spec):
     """把端口规格转成 nft 匹配片段（返回前缀，含前导空格）。
 
@@ -153,17 +160,15 @@ def render_nft(iface, users, log_limit=None):
             L.append('        # %s (%s) BLACKLIST: deny %d dest, then accept all'
                      % (u.get('name', ''), ip, len(deny)))
             for a in deny:
-                proto = str(a.get('proto', 'TCP')).lower()
-                if proto not in ('tcp', 'udp'):
-                    proto = 'tcp'
                 pm = _port_match(a.get('ports', a.get('port', '')))
                 if pm is None:
                     log('skip bad port spec: %r' % (a.get('ports', a.get('port', '')),))
                     continue
-                L.append('        iifname "%s" ip saddr %s ip daddr %s %s%s '
-                         'ct state new log prefix "vpn-flow DENY "%s drop'
-                         % (iface, ip, a.get('ip'), proto, pm, lim))
-                n += 1
+                for proto in _protos(a.get('proto')):
+                    L.append('        iifname "%s" ip saddr %s ip daddr %s %s%s '
+                             'ct state new log prefix "vpn-flow DENY "%s drop'
+                             % (iface, ip, a.get('ip'), proto, pm, lim))
+                    n += 1
             L.append('        iifname "%s" ip saddr %s ct state new log prefix "vpn-flow ALLOW "%s accept'
                      % (iface, ip, lim))
             n += 1
@@ -173,17 +178,15 @@ def render_nft(iface, users, log_limit=None):
                 continue
             L.append('        # %s (%s) allow %d' % (u.get('name', ''), ip, len(allow)))
             for a in allow:
-                proto = str(a.get('proto', 'TCP')).lower()
-                if proto not in ('tcp', 'udp'):
-                    proto = 'tcp'
                 pm = _port_match(a.get('ports', a.get('port', '')))
                 if pm is None:
                     log('skip bad port spec: %r' % (a.get('ports', a.get('port', '')),))
                     continue
-                L.append('        iifname "%s" ip saddr %s ip daddr %s %s%s '
-                         'ct state new log prefix "vpn-flow ALLOW "%s accept'
-                         % (iface, ip, a.get('ip'), proto, pm, lim))
-                n += 1
+                for proto in _protos(a.get('proto')):
+                    L.append('        iifname "%s" ip saddr %s ip daddr %s %s%s '
+                             'ct state new log prefix "vpn-flow ALLOW "%s accept'
+                             % (iface, ip, a.get('ip'), proto, pm, lim))
+                    n += 1
     L.append('')
     L.append('        # ==== default deny: unauthorized new conn, log + drop ====')
     L.append('        iifname "%s" ct state new log prefix "vpn-flow DENY "%s drop' % (iface, lim))

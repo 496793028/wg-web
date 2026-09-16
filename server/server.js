@@ -343,9 +343,18 @@ function parsePorts(raw) {
   return { spec: [...new Set(out)].join(',') };                   // 去重并保持顺序
 }
 
+/* 协议支持多选：'TCP' / 'UDP' / 'TCP,UDP'（拆分校验、去重、固定 TCP 在前） */
+const normProto = v => {
+  const ps = String(v || 'TCP').split(',').map(s => s.trim().toUpperCase())
+    .filter(p => p === 'TCP' || p === 'UDP');
+  const u = [...new Set(ps)];
+  if (u.includes('TCP') && u.includes('UDP')) return 'TCP,UDP';
+  return u[0] || 'TCP';
+};
+
 app.post('/api/pools', attach, need('dest', 'rw'), async (req, res) => {
   const name = str(req.body.name, 64), ip = str(req.body.ip, 45);
-  const proto = req.body.proto === 'UDP' ? 'UDP' : 'TCP';
+  const proto = normProto(req.body.proto);
   const pr = parsePorts(req.body.port);
   if (pr.error) return bad(res, pr.error);
   if (!name || !ip) return bad(res, '名称与 IP 必填');
@@ -368,7 +377,7 @@ app.put('/api/pools/:id', attach, need('dest', 'rw'), async (req, res) => {
   if (!IP_RE.test(ip)) return bad(res, 'IP 格式不正确');
   try {
     await q(`UPDATE dest_pool SET name=?, ip=?, port=?, proto=?, descr=? WHERE id=?`,
-      [name, ip, pr.spec, req.body.proto === 'UDP' ? 'UDP' : 'TCP',
+      [name, ip, pr.spec, normProto(req.body.proto),
        str(req.body.descr, 128) || null, Number(req.params.id)]);
   } catch (e) {
     if (D.isDup(e)) return bad(res, '该 IP:端口:协议 组合已存在');

@@ -39,7 +39,7 @@ function toast(msg, type='ok'){
   setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translateX(24px)'; },2300);
   setTimeout(()=>el.remove(),2700);
 }
-const closeLayer = () => { $('#layer').innerHTML=''; };
+const closeLayer = () => { $('#layer').innerHTML=''; layerSig0=null; };
 
 const ICON = {
   account:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3l7 3v6c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6l7-3z"/></svg>',
@@ -474,6 +474,17 @@ function layerHasUnsavedInput(){
     return (el.value||'').trim() !== '';
   });
 }
+/* 弹层字段签名：打开时留快照(layerSig0)，点周围关闭前比对 —— 只有内容「真的被改过」
+   才阻止关闭（编辑弹窗字段是预填的，只看非空会永远关不掉）。
+   签名覆盖 input/textarea/select 与下拉(combo-val)的当前值，搜索框除外。 */
+let layerSig0 = null;
+function layerSig(){
+  const layer=$('#layer'); if(!layer) return '';
+  return [...layer.querySelectorAll('input,textarea,select,.combo-val')]
+    .filter(el=>!el.closest('.sfield, .combo-search'))
+    .map(el=>`${el.name||el.id||el.tagName}=${el.value!=null?el.value:el.textContent}`).join('|');
+}
+function snapLayer(){ layerSig0 = layerSig(); }
 /* 条目（表格行 / 卡片）：竖屏下点击整条即在点击位置弹出操作选单；横屏保留操作列按钮。 */
 function rowActsAttr(acts){ return ` data-rowacts='${JSON.stringify(acts)}'`; }
 function openActionMenu(anchor, acts, pt){
@@ -522,6 +533,7 @@ function buildCropUI(img, dataURL){
     <div class="modal-ft"><button class="btn" data-close>取消</button>
       <button class="btn primary" id="cropSubmit">提交</button></div>
   </div></div>`;
+  snapLayer();
   const stage=$('#cropStage'), im=$('#cropImg');
   const W=img.naturalWidth, H=img.naturalHeight;
   const minScale=D/Math.max(W,H), maxScale=12;
@@ -744,7 +756,7 @@ function poolCardHTML(p, i, ro){
       <div style="min-width:0"><div class="ucard-name">${esc(p.name)}</div>
         <div class="ucard-ip">${esc(p.ip)}:${esc(portText(p.port))}</div></div></div>
     <div class="ucard-body"><div class="ucard-tags">
-      <span class="tag pool">${esc(p.proto)}</span>
+      ${String(p.proto||'TCP').split(',').map(x=>`<span class="tag pool">${esc(x.trim())}</span>`).join('')}
       <span class="tag">${esc(svcOf(p.port))}</span>
       <span class="tag">${esc(portText(p.port))}</span></div></div>
     <div class="ucard-ft"><span>${esc(p.descr||'无说明')}</span>
@@ -764,11 +776,18 @@ function renderPoolCards(){
 function poolForm(id){
   const p = id ? pool(id) : { name:'', ip:'', port:'', proto:'TCP', descr:'' };
   const ro = !canEdit('dest');
+  /* 协议多选：同一 IP:端口 可同时按 TCP/UDP 授权 */
+  const ps = String(p.proto||'TCP').split(',').map(s=>s.trim().toUpperCase()).filter(s=>s==='TCP'||s==='UDP');
+  if(!ps.length) ps.push('TCP');
+  const chk = v => ps.includes(v) ? 'checked' : '';
   return `<div class="field"><label>名称</label><input name="name" value="${esc(p.name)}" ${ro?'disabled':''} placeholder="如：数据库-MySQL"></div>
     <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="10.0.20.5"></div>
     <div class="field"><label>端口或区间，用逗号分隔</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口"></div></div>
-    ${combo('c_proto',{label:'协议',value:p.proto,searchable:false,
-      options:[{v:'TCP',t:'TCP'},{v:'UDP',t:'UDP'}],onPick:()=>{}})}
+    <div class="field"><label>协议（可多选，同时按所选协议放行）</label>
+      <div class="proto-chks">
+        <label class="proto-chk"><input type="checkbox" name="proto" value="TCP" ${chk('TCP')} ${ro?'disabled':''}><b>TCP</b></label>
+        <label class="proto-chk"><input type="checkbox" name="proto" value="UDP" ${chk('UDP')} ${ro?'disabled':''}><b>UDP</b></label>
+      </div></div>
     <div class="field" style="margin-bottom:0"><label>说明</label>
       <input name="descr" value="${esc(p.descr||'')}" ${ro?'disabled':''}></div>`;
 }
@@ -874,7 +893,7 @@ function openGrant(id){
       <div style="display:flex;gap:9px"><button class="btn" data-close>取消</button>
       <button class="btn primary" data-act="grant-save" data-id="${v.id}" ${!canEdit('vpn')?'disabled':''}>保存授权</button></div></div>
   </div></div>`;
-  bindSF();
+  bindSF(); snapLayer();
 }
 async function showVpnConf(id, note){
   let r;
@@ -1020,7 +1039,7 @@ function modal(o){
     ok.disabled = true;
     try{ if(await o.onOk() !== false) closeLayer(); } finally { ok.disabled = false; }
   };
-  bindSF(); if(o.after) o.after();
+  bindSF(); snapLayer(); if(o.after) o.after();
 }
 function confirmBox(title, msg, onYes, okText='确认删除'){
   modal({title, body:`<div style="font-size:13.5px;line-height:1.8">${msg}</div>`, okText, onOk:onYes});
@@ -1191,13 +1210,15 @@ const ACT = {
   /* 目的地 */
   'pool-new': ()=> modal({title:'新增 IP-端口', body:poolForm(null), onOk: async ()=>{
       const g=readForm(); if(!g.name||!g.ip){ toast('名称与 IP 必填（端口留空=所有端口）','err'); return false; }
-      await api('POST','pools',{...g,proto:comboVal('c_proto')||'TCP'}); await loadState();
+      const protos=$$('#layer input[name="proto"]:checked').map(x=>x.value);
+      await api('POST','pools',{...g,proto:protos.join(',')||'TCP'}); await loadState();
       refresh(); toast('已添加'); }}),
   'pool-edit': el=>{ const p=pool(el.dataset.id);
     modal({title:'编辑 IP-端口', body:poolForm(p.id), onOk: async ()=>{
       if(!canEdit('dest')) return;
       const g=readForm();
-      await api('PUT','pools/'+p.id,{...g,proto:comboVal('c_proto')||p.proto}); await loadState();
+      const protos=$$('#layer input[name="proto"]:checked').map(x=>x.value);
+      await api('PUT','pools/'+p.id,{...g,proto:protos.join(',')||p.proto}); await loadState();
       refresh(); toast('已保存'); }}); },
   'pool-del': el=>{ const p=pool(el.dataset.id);
     confirmBox('删除 IP-端口',`确定删除 <b>${esc(p.name)}</b>（${esc(p.ip)}:${esc(portText(p.port))}）吗？引用它的包会同步移除。`, async ()=>{
@@ -1355,8 +1376,9 @@ document.addEventListener('click', e=>{
   if(lpFired){ lpFired=false; e.stopPropagation(); e.preventDefault(); return; }   // 长按已处理，吞掉尾随 click
   if(e.target.closest('[data-close]')) return closeLayer();
   if(e.target.matches('[data-backdrop]')){
-    /* 弹层里有内容 / 已有修改（搜索框除外）时，点周围不收起 —— 避免误关丢输入 */
-    if(layerHasUnsavedInput()) return;
+    /* 内容「真的被改过」（与打开时的快照不同）才阻止点周围关闭；没改过 → 允许点周围关闭 */
+    if(layerSig0!==null && layerSig()!==layerSig0) return;
+    if(isMobile() && layerHasUnsavedInput()) return;
     return closeLayer();
   }
   if(!e.target.closest('.combo')) closeCombos();
