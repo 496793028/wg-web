@@ -4,7 +4,9 @@
 
 把管控平台的「意图」落地为网关上的真实网络策略：
   peers  -> wg0.conf 托管块 + `wg syncconf` 热加载（增/删 peer，不中断已有连接）
-  grants -> nftables 执行规则集：**默认拒绝** + 按 (源VPN IP -> 目的IP:端口/协议) 放行
+  grants -> nftables 执行规则集：
+              allow 模式（默认）：**默认拒绝** + 仅放行 allow 清单内的 (目的IP:端口/协议)
+              deny  模式（黑名单）：先 drop deny 清单目的地，再兜底 accept 该用户全部新连接
   另外写 ip2name.json，供日志采集器把源 IP 还原成用户名
 
 安全边界（重要）：
@@ -120,6 +122,11 @@ def _port_match(spec):
 def render_nft(iface, users, log_limit=None):
     """生成完整 nftables 执行规则集（单事务原子重载）。返回 (文本, 放行规则数)。
 
+    两种模式（来自 grants 的 mode 字段）：
+      allow（白名单，默认）：仅放行 allow 清单内的 (目的IP:端口/协议)；其余默认拒绝。
+      deny （黑名单）      ：先 drop deny 清单内的目的地，再对该用户来源 IP 兜底 accept 全部，
+                             即「默认放行全部网段，仅禁止清单内目的地」。
+
     注释一律 ASCII：避免网关 locale 非 UTF-8 时 nft 解析异常。
     """
     lim = (' limit rate %s' % log_limit) if log_limit else ''
@@ -137,22 +144,46 @@ def render_nft(iface, users, log_limit=None):
     n = 0
     for u in users:
         ip = u.get('vpn_ip')
-        allow = u.get('allow') or []
-        if not ip or not allow:
+        if not ip:
             continue
-        L.append('        # %s (%s) allow %d' % (u.get('name', ''), ip, len(allow)))
-        for a in allow:
-            proto = str(a.get('proto', 'TCP')).lower()
-            if proto not in ('tcp', 'udp'):
-                proto = 'tcp'
-            pm = _port_match(a.get('ports', a.get('port', '')))
-            if pm is None:
-                log('跳过非法端口规格：%r' % (a.get('ports', a.get('port', '')),))
-                continue
-            L.append('        iifname "%s" ip saddr %s ip daddr %s %s%s '
-                     'ct state new log prefix "vpn-flow ALLOW "%s accept'
-                     % (iface, ip, a.get('ip'), proto, pm, lim))
+        mode = u.get('mode', 'allow')
+        if mode == 'deny':
+            # 黑名单：先显式禁止 deny 清单目的地，再兜底放行该用户全部新连接
+            deny = u.get('deny') or []
+            L.append('        # %s (%s) BLACKLIST: deny %d dest, then accept all'
+                     % (u.get('name', ''), ip, len(deny)))
+            for a in deny:
+                proto = str(a.get('proto', 'TCP')).lower()
+                if proto not in ('tcp', 'udp'):
+                    proto = 'tcp'
+                pm = _port_match(a.get('ports', a.get('port', '')))
+                if pm is None:
+                    log('skip bad port spec: %r' % (a.get('ports', a.get('port', '')),))
+                    continue
+                L.append('        iifname "%s" ip saddr %s ip daddr %s %s%s '
+                         'ct state new log prefix "vpn-flow DENY "%s drop'
+                         % (iface, ip, a.get('ip'), proto, pm, lim))
+                n += 1
+            L.append('        iifname "%s" ip saddr %s ct state new log prefix "vpn-flow ALLOW "%s accept'
+                     % (iface, ip, lim))
             n += 1
+        else:
+            allow = u.get('allow') or []
+            if not allow:
+                continue
+            L.append('        # %s (%s) allow %d' % (u.get('name', ''), ip, len(allow)))
+            for a in allow:
+                proto = str(a.get('proto', 'TCP')).lower()
+                if proto not in ('tcp', 'udp'):
+                    proto = 'tcp'
+                pm = _port_match(a.get('ports', a.get('port', '')))
+                if pm is None:
+                    log('skip bad port spec: %r' % (a.get('ports', a.get('port', '')),))
+                    continue
+                L.append('        iifname "%s" ip saddr %s ip daddr %s %s%s '
+                         'ct state new log prefix "vpn-flow ALLOW "%s accept'
+                         % (iface, ip, a.get('ip'), proto, pm, lim))
+                n += 1
     L.append('')
     L.append('        # ==== default deny: unauthorized new conn, log + drop ====')
     L.append('        iifname "%s" ct state new log prefix "vpn-flow DENY "%s drop' % (iface, lim))

@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS vpn_account (
   note       TEXT    NULL,
   pubkey     TEXT    NULL,
   privkey    TEXT    NULL,
+  mode       TEXT    NOT NULL DEFAULT 'allow',
   status     INTEGER NOT NULL DEFAULT 1,
   created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now','localtime'))
 );

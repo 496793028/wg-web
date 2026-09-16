@@ -671,34 +671,28 @@ function pkgListHTML(){
     : '<div class="chk-empty">没有匹配的结果</div>';
 }
 
-/* 用户卡片（外层展示）：黑名单模式显示鎏金边框 + 模式徽标，卡片尺寸不变化 */
-function ucardHTML(v, i){
-  const tags=grantTags(v), n=grantCount(v), black = v.mode==='deny';
-  return `<div class="ucard ${black?'black':''} ${ui.picked.has(String(v.id))?'pick':''}" data-act="vpn-open" data-id="${v.id}"
-      style="animation-delay:${i*40}ms">
-    <div class="cbox ucard-pick ${ui.picked.has(String(v.id))?'on':''}" data-act="vpn-pick" data-id="${v.id}">${ui.picked.has(String(v.id))?ICON.check:''}</div>
-    <div class="ucard-top"><div class="avatar" style="background:${colorOf(v.name)}">${esc(v.name.slice(0,1))}</div>
-      <div style="min-width:0"><div class="ucard-name">${esc(v.name)}</div><div class="ucard-ip">${esc(v.ip)}</div></div>
-      ${black?`<span class="mode-badge">黑名单</span>`:''}</div>
-    <div class="ucard-body"><div class="ucard-tags">
-      ${tags.length ? tags.slice(0,3).map(t=>`<span class="tag ${t.cls}">${esc(t.t)}</span>`).join('')
-        + (tags.length>3?`<span class="tag more">+${tags.length-3}</span>`:'')
-        : '<span class="empty-mini">尚未授权任何目的地</span>'}</div></div>
-    <div class="ucard-ft"><span>${black?`${n} 个禁止例外`:`${n} 个可访问目的地`}</span>
-      ${rowMore([
-        {act:'vpn-conf', id:v.id, label:'客户端配置'},
-        {act:'vpn-del', id:v.id, label:'删除用户', danger:true},
-      ])}
-      <span class="badge ${(v.status===1||v.status==='on')?'ok':''}">${(v.status===1||v.status==='on')?'正常':'停用'}</span></div>
-  </div>`;
-}
-
 /* ================= VPN 配置 ================= */
 function viewVpn(){
   const ro = !canEdit('vpn');
   const q = ui.q.vpn.trim().toLowerCase();
   const list = S.vpn.filter(v=>!q || (v.name+v.ip).toLowerCase().includes(q));
-  const cards = list.map((v,i)=>ucardHTML(v,i)).join('');
+  const cards = list.map((v,i)=>{ const tags=grantTags(v), n=grantCount(v);
+    return `<div class="ucard ${ui.picked.has(String(v.id))?'pick':''}" data-act="vpn-open" data-id="${v.id}"
+        style="animation-delay:${i*45}ms">
+      <div class="cbox ucard-pick ${ui.picked.has(String(v.id))?'on':''}" data-act="vpn-pick" data-id="${v.id}">${ui.picked.has(String(v.id))?ICON.check:''}</div>
+      <div class="ucard-top"><div class="avatar" style="background:${colorOf(v.name)}">${esc(v.name.slice(0,1))}</div>
+        <div style="min-width:0"><div class="ucard-name">${esc(v.name)}</div><div class="ucard-ip">${esc(v.ip)}</div></div></div>
+      <div class="ucard-body"><div class="ucard-tags">
+        ${tags.length ? tags.slice(0,3).map(t=>`<span class="tag ${t.cls}">${esc(t.t)}</span>`).join('')
+          + (tags.length>3?`<span class="tag more">+${tags.length-3}</span>`:'')
+          : '<span class="empty-mini">尚未授权任何目的地</span>'}</div></div>
+      <div class="ucard-ft"><span>${n} 个可访问目的地</span>
+        ${rowMore([
+          {act:'vpn-conf', id:v.id, label:'客户端配置'},
+          {act:'vpn-del', id:v.id, label:'删除用户', danger:true},
+        ])}
+        <span class="badge ${(v.status===1||v.status==='on')?'ok':''}">${(v.status===1||v.status==='on')?'正常':'停用'}</span></div>
+    </div>`;}).join('');
   return `<div class="page-hd"><div><div class="page-title">VPN 配置</div>
       <div class="page-desc">按真实姓名分配 VPN 账号；点击卡片进入可视化授权页勾选可访问的目的地</div></div>
     <div class="hd-actions">
@@ -717,7 +711,22 @@ function renderVpnCards(){
   const q = ui.q.vpn.trim().toLowerCase(), ro = !canEdit('vpn');
   const list = S.vpn.filter(v=>!q || (v.name+v.ip).toLowerCase().includes(q));
   const g = $('#vpnGrid'); if(!g) return;
-  g.innerHTML = list.map((v,i)=>ucardHTML(v,i)).join('') || '<div class="empty"><p>没有匹配的用户</p></div>';
+  g.innerHTML = list.map((v,i)=>{ const tags=grantTags(v), n=grantCount(v);
+    return `<div class="ucard ${ui.picked.has(String(v.id))?'pick':''}" data-act="vpn-open" data-id="${v.id}" style="animation-delay:${i*35}ms">
+      <div class="cbox ucard-pick ${ui.picked.has(String(v.id))?'on':''}" data-act="vpn-pick" data-id="${v.id}">${ui.picked.has(String(v.id))?ICON.check:''}</div>
+      <div class="ucard-top"><div class="avatar" style="background:${colorOf(v.name)}">${esc(v.name.slice(0,1))}</div>
+        <div style="min-width:0"><div class="ucard-name">${esc(v.name)}</div><div class="ucard-ip">${esc(v.ip)}</div></div></div>
+      <div class="ucard-body"><div class="ucard-tags">
+        ${tags.length?tags.slice(0,3).map(t=>`<span class="tag ${t.cls}">${esc(t.t)}</span>`).join('')
+          +(tags.length>3?`<span class="tag more">+${tags.length-3}</span>`:'')
+          :'<span class="empty-mini">尚未授权任何目的地</span>'}</div></div>
+      <div class="ucard-ft"><span>${n} 个可访问目的地</span>
+        ${rowMore([
+          {act:'vpn-conf', id:v.id, label:'客户端配置'},
+          {act:'vpn-del', id:v.id, label:'删除用户', danger:true},
+        ])}
+        <span class="badge ${(v.status===1||v.status==='on')?'ok':''}">${(v.status===1||v.status==='on')?'正常':'停用'}</span></div>
+    </div>`;}).join('') || '<div class="empty"><p>没有匹配的用户</p></div>';
 }
 function vpnForm(){
   return `<div class="field"><label>真实姓名</label><input name="name" placeholder="如：陈晓明"></div>
@@ -730,22 +739,13 @@ function vpnForm(){
 function openGrant(id){
   const v = vuser(id); if(!v) return;
   ui.editGrants = JSON.parse(JSON.stringify(v.grants)); ui.q.grant='';
-  ui.editMode = v.mode==='deny' ? 'deny' : 'allow';
-  const black = ui.editMode==='deny';
-  $('#layer').innerHTML = `<div class="drawer-wrap" data-backdrop><div class="drawer ${black?'black':''}">
+  $('#layer').innerHTML = `<div class="drawer-wrap" data-backdrop><div class="drawer">
     <div class="drawer-hd"><div style="display:flex;align-items:center;gap:11px">
       <div class="avatar" style="background:${colorOf(v.name)}">${esc(v.name.slice(0,1))}</div>
       <div><div style="font-size:15px;font-weight:600">${esc(v.name)}</div>
         <div class="ucard-ip">${esc(v.ip)} · ${esc(v.note||'无备注')}</div></div></div>
       <button class="icon-btn" data-close>×</button></div>
     <div class="drawer-bd">
-      <div class="mode-toggle ${black?'on':''}" data-act="mode-toggle">
-        <div class="mt-left"><div class="mt-title"><span class="mode-badge">黑名单</span> 黑名单模式</div>
-          <div class="mt-sub">开启后默认放行全部网段，勾选的目的地将被禁止访问</div></div>
-        <span class="am-switch ${black?'on':''}"><span class="am-knob"></span></span>
-      </div>
-      <div class="blk-hint" id="blkHint" style="${black?'':'display:none'}">
-        ⚠ 黑名单模式：该用户默认可访问<b>所有网段</b>，下方勾选的目的地将被<b>禁止访问</b>（其余全部放行）。</div>
       ${sfield('sf_grant','',q=>{ ui.q.grant=q; const l=$('#grantList'); if(l) l.innerHTML=grantListHTML(); },'搜索 IP-端口或目的地包')}
       <div id="grantList" style="margin-top:12px">${grantListHTML()}</div></div>
     <div class="drawer-ft"><div class="left">
@@ -777,20 +777,18 @@ async function showVpnConf(id){
 }
 function grantListHTML(){
   const q = ui.q.grant.trim().toLowerCase(), sel = ui.editGrants;
-  const deny = ui.editMode==='deny';
   const has = (t,id) => sel.some(g=>g.t===t && String(g.id)===String(id));
-  const suffix = deny ? ' · 勾选即禁止（默认全放行）' : '';
   const ps = S.pools.filter(p=>!q || (p.name+p.ip+p.port).toLowerCase().includes(q));
   const ks = S.packages.filter(k=>!q || (k.name+(k.descr||'')).toLowerCase().includes(q));
   const row = (t,id,title,sub) => `<div class="chk-item" data-act="grant-toggle" data-t="${t}" data-id="${id}">
     <div class="cbox ${has(t,id)?'on':''}">${has(t,id)?ICON.check:''}</div>
     <div class="ci-main"><div class="ci-t">${title}</div><div class="ci-s">${sub}</div></div></div>`;
   return `<div class="chk-group"><div class="chk-group-hd">
-      <span class="chk-group-t">目的地包${suffix}</span><span class="chk-group-n">${ks.length} 个</span></div>
+      <span class="chk-group-t">目的地包（推荐，一次授权多个）</span><span class="chk-group-n">${ks.length} 个</span></div>
     <div class="chk-list">${ks.length ? ks.map(k=>row('pkg',k.id,esc(k.name),`${k.poolIds.length} 个 IP-端口`)).join('')
       : '<div class="chk-empty">没有匹配的目的地包</div>'}</div></div>
     <div class="chk-group"><div class="chk-group-hd">
-      <span class="chk-group-t">IP-端口池${suffix}</span><span class="chk-group-n">${ps.length} 个</span></div>
+      <span class="chk-group-t">IP-端口池（单条精确授权）</span><span class="chk-group-n">${ps.length} 个</span></div>
     <div class="chk-list">${ps.length ? ps.map(p=>row('pool',p.id,esc(p.name),`${esc(p.ip)}:${esc(portText(p.port))} · ${esc(p.proto)}${/^\d+$/.test(String(p.port))?' · '+esc(svc(Number(p.port))):''}`)).join('')
       : '<div class="chk-empty">没有匹配的 IP-端口</div>'}</div></div>`;
 }
@@ -887,33 +885,6 @@ function modal(o){
 function confirmBox(title, msg, onYes, okText='确认删除'){
   modal({title, body:`<div style="font-size:13.5px;line-height:1.8">${msg}</div>`, okText, onOk:onYes});
   const ok = $('#layer [data-ok]'); if(ok) ok.className='btn danger';
-}
-/* 高危二次确认：必须手动输入「确认」才放行（用于黑名单模式提交等不可逆/大面积变更） */
-function confirmDanger(title, msg, onYes){
-  document.getElementById('cfmOverlay')?.remove();
-  const ov = document.createElement('div');
-  ov.id = 'cfmOverlay'; ov.className = 'modal-wrap confirm-overlay';
-  ov.style.zIndex = '210';
-  ov.innerHTML = `<div class="modal danger-modal">
-    <div class="modal-hd"><h3>${esc(title)}</h3><button class="icon-btn" data-cfm-x>×</button></div>
-    <div class="modal-bd"><div class="warn-box">${msg}</div>
-      <div class="field" style="margin-top:14px"><label>输入「确认」以继续</label>
-        <input id="cfmInput" class="cfm-input" placeholder="确认" autocomplete="off" spellcheck="false"></div></div>
-    <div class="modal-ft"><button class="btn" data-cfm-cancel>取消</button>
-      <button class="btn danger" id="cfmOk" disabled>确认执行</button></div></div>`;
-  document.body.appendChild(ov);
-  const inp = ov.querySelector('#cfmInput'), ok = ov.querySelector('#cfmOk');
-  inp.oninput = ()=>{ ok.disabled = inp.value.trim() !== '确认'; };
-  inp.focus();
-  const close = ()=> ov.remove();
-  ov.addEventListener('click', e=>{ if(e.target === ov) close(); });
-  ov.querySelector('[data-cfm-x]').onclick = close;
-  ov.querySelector('[data-cfm-cancel]').onclick = close;
-  ok.onclick = async ()=>{
-    if(inp.value.trim() !== '确认'){ toast('请输入「确认」','err'); return; }
-    ok.disabled = true;
-    try{ await onYes(); ov.remove(); }catch(e){ toast(e.message,'err'); ok.disabled = false; }
-  };
 }
 function readForm(){ const o={}; $$('#layer [name]').forEach(e=>o[e.name]=e.value.trim()); return o; }
 /* 密码输入框（带「显示/隐藏」眼睛按钮）。opts: {ac,ph,val,hint,last} */
@@ -1125,33 +1096,11 @@ const ACT = {
     i>=0 ? ui.editGrants.splice(i,1) : ui.editGrants.push({t,id});
     const l=$('#grantList'); if(l) l.innerHTML=grantListHTML(); },
   'grant-clear': ()=>{ ui.editGrants=[]; const l=$('#grantList'); if(l) l.innerHTML=grantListHTML(); },
-  /* 抽屉内「黑名单模式」开关：仅切换 ui.editMode 并就地刷新，不重置已勾选的目的地 */
-  'mode-toggle': ()=>{
-    ui.editMode = ui.editMode==='deny' ? 'allow' : 'deny';
-    const black = ui.editMode==='deny';
-    const el = document.querySelector('.mode-toggle');
-    if(el){ el.classList.toggle('on', black);
-      const sw = el.querySelector('.am-switch'); if(sw) sw.classList.toggle('on', black); }
-    const hint = document.getElementById('blkHint'); if(hint) hint.style.display = black ? '' : 'none';
-    const l = document.getElementById('grantList'); if(l) l.innerHTML = grantListHTML();
-    const dr = document.querySelector('.drawer'); if(dr) dr.classList.toggle('black', black);
-  },
   'grant-save': el=>{ const v=vuser(el.dataset.id);
-    const save = async ()=>{
-      await api('PUT',`vpn/${v.id}/grants`,{grants:ui.editGrants, mode:ui.editMode});
-      await loadState(); closeLayer(); refresh();
-      toast(ui.editMode==='deny'
-        ? `已启用黑名单模式：${v.name} 默认放行全部网段，${grantCount(vuser(v.id))} 个目的地被禁止`
-        : `已保存，${v.name} 可访问 ${grantCount(vuser(v.id))} 个目的地`);
-    };
-    if(ui.editMode==='deny'){
-      confirmDanger('确认提交黑名单模式？',
-        `即将把 <b>${esc(v.name)}</b> 设为<b>黑名单模式</b>：该用户默认<b>放行全部网段</b>，仅勾选的 ${ui.editGrants.length} 个目的地会被<b>禁止访问</b>。此变更会立即下发到网关，请确认无误。`,
-        save);
-    } else {
-      save().catch(e=>toast(e.message,'err'));
-    }
-  },
+    (async ()=>{
+      await api('PUT',`vpn/${v.id}/grants`,{grants:ui.editGrants}); await loadState();
+      closeLayer(); refresh(); toast(`已保存，${v.name} 可访问 ${grantCount(vuser(v.id))} 个目的地`);
+    })().catch(e=>toast(e.message,'err')); },
 };
 
 /* ---------------- 全局委托 + 水波纹 ---------------- */

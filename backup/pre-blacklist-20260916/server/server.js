@@ -244,7 +244,7 @@ app.get('/api/state', attach, auth, async (req, res) => {
     out.packages = ks;
   }
   if (canView(req.user, 'vpn')) {
-    const vs = await q(`SELECT id, name, vpn_ip, note, status, mode, created_at FROM vpn_account ORDER BY id`);
+    const vs = await q(`SELECT id, name, vpn_ip, note, status, created_at FROM vpn_account ORDER BY id`);
     for (const v of vs)
       v.grants = (await q(`SELECT kind, ref_id FROM vpn_grant WHERE vpn_id=?`, [v.id])).map(g => ({ t: g.kind, id: g.ref_id }));
     out.vpn = vs;
@@ -561,27 +561,21 @@ async function grantedDestIps(vpnId) {
 }
 
 app.get('/api/vpn/:id/conf', attach, need('vpn', 'r'), async (req, res) => {
-  const v = await q1(`SELECT name, vpn_ip, privkey, mode FROM vpn_account WHERE id=?`, [Number(req.params.id)]);
+  const v = await q1(`SELECT name, vpn_ip, privkey FROM vpn_account WHERE id=?`, [Number(req.params.id)]);
   if (!v) return res.status(404).json({ error: '用户不存在' });
   const priv = v.privkey ? decKey(v.privkey) : null;
   const pub = serverPub();
   const ep = process.env.WG_ENDPOINT || '';
   if (!priv || !pub || !ep)
     return res.status(400).json({ error: '缺少配置要素：请设置 WG_ENDPOINT 与网关公钥（WG_SERVER_PUB 或 server.pub），且该用户已有密钥' });
-  const mode = v.mode === 'deny' ? 'deny' : 'allow';
+  // AllowedIPs = env 基础路由 + 该用户被授权的目标 IP(/32)。
+  // 这样在网页授权某内网目标后，客户端会自动把该目标路由进隧道，
+  // 不再需要手动在 WG_CLIENT_ALLOWED 里列出所有内网段（否则跨子网目标连不通）。
   const allowParts = [];
   for (const p of String(process.env.WG_CLIENT_ALLOWED || '10.100.0.0/24, 10.0.0.0/8').split(',')) {
     const t = p.trim(); if (t) allowParts.push(t);
   }
-  if (mode === 'deny') {
-    // 黑名单模式：默认放行全部网段（全量走隧道），仅网关侧 deny 列表被禁止。
-    allowParts.push('0.0.0.0/0');
-  } else {
-    // AllowedIPs = env 基础路由 + 该用户被授权的目标 IP(/32)。
-    // 这样在网页授权某内网目标后，客户端会自动把该目标路由进隧道，
-    // 不再需要手动在 WG_CLIENT_ALLOWED 里列出所有内网段（否则跨子网目标连不通）。
-    for (const ip of await grantedDestIps(Number(req.params.id))) allowParts.push(ip + '/32');
-  }
+  for (const ip of await grantedDestIps(Number(req.params.id))) allowParts.push(ip + '/32');
   const _seen = new Set(); const allowIps = [];
   for (const x of allowParts) { if (!_seen.has(x)) { _seen.add(x); allowIps.push(x); } }
 
@@ -602,9 +596,6 @@ app.put('/api/vpn/:id/grants', attach, need('vpn', 'rw'), async (req, res) => {
   const id = Number(req.params.id);
   if (!(await q1(`SELECT id FROM vpn_account WHERE id=?`, [id])))
     return res.status(404).json({ error: '用户不存在' });
-  // 模式：allow（白名单，默认）/ deny（黑名单）。前端勾选的目的地在 deny 模式下即为「禁止访问」例外。
-  const mode = req.body.mode === 'deny' ? 'deny' : 'allow';
-  await q(`UPDATE vpn_account SET mode=? WHERE id=?`, [mode, id]);
   await q(`DELETE FROM vpn_grant WHERE vpn_id=?`, [id]);
   for (const g of (Array.isArray(req.body.grants) ? req.body.grants : [])) {
     if (g.t !== 'pool' && g.t !== 'pkg') continue;
@@ -616,8 +607,7 @@ app.put('/api/vpn/:id/grants', attach, need('vpn', 'rw'), async (req, res) => {
     if (exists) await q(`${D.insertIgnore} INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [id, g.t, refId]);
   }
   const t = await q1(`SELECT name FROM vpn_account WHERE id=?`, [id]);
-  await audit(req, mode === 'deny' ? '启用黑名单模式' : '授权目的地',
-    `${t ? t.name : id} → 模式=${mode}，${(req.body.grants || []).length} 项目的地`);
+  await audit(req, '授权目的地', `${t ? t.name : id} → ${(req.body.grants || []).length} 项`);
   res.json({ ok: true });
 });
 
@@ -664,32 +654,29 @@ app.get('/api/stats', attach, need('audit', 'r'), async (_req, res) => {
 app.get('/api/gateway/grants', asyncHandler(async (req, res) => {
   if (process.env.INGEST_TOKEN && req.headers['x-ingest-token'] !== process.env.INGEST_TOKEN)
     return res.status(401).json({ error: 'invalid token' });
-  const vs = await q(`SELECT id, name, vpn_ip, mode FROM vpn_account WHERE status=1 ORDER BY id`);
+  const vs = await q(`SELECT id, name, vpn_ip FROM vpn_account WHERE status=1 ORDER BY id`);
   const out = [];
   for (const v of vs) {
-    const mode = v.mode === 'deny' ? 'deny' : 'allow';
     const gs = await q(`SELECT kind, ref_id FROM vpn_grant WHERE vpn_id=?`, [v.id]);
-    const allow = [], deny = [], seen = new Set();
-    const push = (arr, p) => {
+    const allow = [], seen = new Set();
+    const push = p => {
       if (!p) return;
       const ports = p.port == null ? '' : String(p.port);   // '' = 全部端口；否则形如 '9,100-200'
       const k = `${p.ip}:${ports}:${p.proto}`;
       if (seen.has(k)) return;
       seen.add(k);
-      arr.push({ ip: p.ip, ports, proto: p.proto });
+      allow.push({ ip: p.ip, ports, proto: p.proto });
     };
     for (const g of gs) {
-      // deny 模式下：勾选的目的地进入 deny（禁止）清单；allow 模式下进入 allow（放行）清单
-      const arr = mode === 'deny' ? deny : allow;
       if (g.kind === 'pool') {
-        push(arr, await q1(`SELECT ip, port, proto FROM dest_pool WHERE id=?`, [g.ref_id]));
+        push(await q1(`SELECT ip, port, proto FROM dest_pool WHERE id=?`, [g.ref_id]));
       } else {
         const items = await q(`SELECT pool_id FROM dest_package_item WHERE package_id=?`, [g.ref_id]);
         for (const it of items)
-          push(arr, await q1(`SELECT ip, port, proto FROM dest_pool WHERE id=?`, [it.pool_id]));
+          push(await q1(`SELECT ip, port, proto FROM dest_pool WHERE id=?`, [it.pool_id]));
       }
     }
-    out.push({ vpn_ip: v.vpn_ip, name: v.name, mode, allow, deny });
+    out.push({ vpn_ip: v.vpn_ip, name: v.name, allow });
   }
   res.json({ users: out });
 }));
@@ -738,7 +725,6 @@ async function initDb() {
     const cols = await D.columns('vpn_account');
     if (!cols.includes('pubkey'))  await D.run(`ALTER TABLE vpn_account ADD COLUMN pubkey  VARCHAR(64)  NULL`);
     if (!cols.includes('privkey')) await D.run(`ALTER TABLE vpn_account ADD COLUMN privkey VARCHAR(255) NULL`);
-    if (!cols.includes('mode'))    await D.run(`ALTER TABLE vpn_account ADD COLUMN mode VARCHAR(8) NOT NULL DEFAULT 'allow'`);
   } catch (e) { console.error('[WARN] 字段迁移失败：', e.message); }
   /* 不设任何固定默认口令。未配置 ADMIN_INIT_PWD 时，admin 以「口令未设置」状态创建
      （pwd_hash 存空串），首次打开平台会引导在网页上设置口令。
