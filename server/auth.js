@@ -63,7 +63,7 @@ module.exports = {
     }
     await D.run(`UPDATE sys_session SET last_seen=${D.sql.now3} WHERE id=?`, [id]);
     return await D.get(
-      `SELECT id, login, name, role, perm_account, perm_dest, perm_vpn, perm_audit,
+      `SELECT id, login, name, role, avatar, perm_account, perm_dest, perm_vpn, perm_audit,
               status, must_change_pwd
        FROM sys_account WHERE id=? AND status=1`, [s.account_id]);
   },

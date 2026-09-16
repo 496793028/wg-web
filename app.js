@@ -480,7 +480,9 @@ function buildCropUI(img, dataURL){
     const c=document.createElement('canvas'); c.width=OUT; c.height=OUT;
     const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,OUT,OUT);
     ctx.drawImage(img, x0, y0, s, s, 0, 0, OUT, OUT);
-    let out; try{ out=c.toDataURL('image/png'); }catch{ toast('裁切失败，请重试','err'); return; }
+    // 以 JPEG 输出并压缩到 256×256，体积仅数十 KB，远小于后端 2MB 上限，
+    // 避免原图分辨率过高导致存储与传输浪费（也呼应「5MB 限制过大」的反馈）。
+    let out; try{ out=c.toDataURL('image/jpeg', 0.82); }catch{ toast('裁切失败，请重试','err'); return; }
     uploadAvatar(out).finally(closeLayer);
   };
 }
@@ -492,23 +494,29 @@ function viewSettings(){
     </div>`).join('');
   return `<div class="page-hd"><div><div class="page-title">设置</div>
       <div class="page-desc">查看并管理你的个人资料与偏好</div></div></div>
-    <div class="panel profile-card">
-      <div class="profile-top">
-        <button class="profile-avatar" data-act="avatar-edit" type="button" title="修改头像">
-          ${av?`<img src="${esc(av)}" alt="">`:ICON.person}<span class="pa-edit">${ICON.upload}</span>
-        </button>
-        <div class="profile-meta">
-          <div class="profile-name">${esc(me.name)}</div>
-          <div class="profile-role">${esc(ROLES[me.role]||me.role)}</div>
-          <div class="profile-login sub mono">${esc(me.login)}</div>
+    <div class="settings-grid">
+      <div class="panel profile-hero">
+        <div class="profile-top">
+          <button class="profile-avatar" data-act="avatar-edit" type="button" title="修改头像">
+            <span class="pa-thumb">${av?`<img src="${esc(av)}" alt="">`:ICON.person}</span>
+            <span class="pa-edit">${ICON.upload}</span>
+          </button>
+          <div class="profile-meta">
+            <div class="profile-name">${esc(me.name)}</div>
+            <div class="profile-role">${esc(ROLES[me.role]||me.role)}</div>
+            <div class="profile-login sub mono">${esc(me.login)}</div>
+          </div>
+        </div>
+        <div class="profile-actions">
+          <div class="pf-row"><span class="pf-label">${ICON.sun}<span>黑白风格</span></span>
+            <button class="am-switch ${THEME==='light'?'on':''}" data-act="theme-toggle" role="switch" aria-checked="${THEME==='light'}"><span class="am-knob"></span></button></div>
+          <button class="btn block" data-act="self-pw">${ICON.person}<span>修改密码</span></button>
+          <button class="btn block danger" data-act="logout">${ICON.logout}<span>退出登录</span></button>
         </div>
       </div>
-      <div class="profile-perms"><div class="pp-hd">我的权限</div>${perms}</div>
-      <div class="profile-actions">
-        <div class="pf-row"><span class="pf-label">${ICON.sun}<span>黑白风格</span></span>
-          <button class="am-switch ${THEME==='light'?'on':''}" data-act="theme-toggle" role="switch" aria-checked="${THEME==='light'}"><span class="am-knob"></span></button></div>
-        <button class="btn block" data-act="self-pw">${ICON.person}<span>修改密码</span></button>
-        <button class="btn block danger" data-act="logout">${ICON.logout}<span>退出登录</span></button>
+      <div class="panel profile-perms-card">
+        <div class="pp-hd">我的权限</div>
+        <div class="profile-perms">${perms}</div>
       </div>
     </div>`;
 }
@@ -966,7 +974,7 @@ const ACT = {
     if(!inp){ inp=document.createElement('input'); inp.type='file'; inp.id='avatarFile';
       inp.accept='image/png,image/jpeg,image/webp'; inp.style.display='none'; document.body.appendChild(inp);
       inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(!f) return;
-        if(f.size>5*1024*1024){ toast('图片不能超过 5MB','err'); return; }
+        if(f.size>3*1024*1024){ toast('原图不能超过 3MB（提交时会自动压缩尺寸）','err'); return; }
         const rd=new FileReader(); rd.onload=()=>openAvatarCrop(String(rd.result)); rd.readAsDataURL(f); }; }
     inp.click();
   },

@@ -33,9 +33,9 @@ const db = { run: (s, p) => D.run(s, p), get: (s, p) => D.get(s, p), all: (s, p)
 
 /* ---------------- 中间件 ---------------- */
 app.disable('x-powered-by');
-/* 头像上传以 base64 传入，体积可达数 MB：单独放宽该路由的 JSON 上限到 5MB，
-   避免命中全局 128kb 限制被兜底错误处理器转为 500「服务器内部错误」 */
-app.use('/api/me/avatar', express.json({ limit: '5mb' }));
+/* 头像上传以 base64 传入；前端已压缩到 256×256 JPEG（仅数十 KB），
+   故将本路由 JSON 上限设为 2MB（远小于原 5MB），既留足余量又收紧限制。 */
+app.use('/api/me/avatar', express.json({ limit: '2mb' }));
 app.use(express.json({ limit: '128kb' }));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
