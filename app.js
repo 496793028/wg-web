@@ -650,7 +650,9 @@ function viewDest(){
 }
 function poolTable(list, ro){
   const ck = ui.batch;
-  return `<table><thead><tr>${ck?'<th class="cbox-col"></th>':''}
+  /* 勾选列「常驻」（非批量态只留空列）：这样进入/退出批量管理时列头结构完全不变，
+     其余各列的宽度与比例也就不会跳变（此前是批量态才插入该列，导致列头比例突变）。 */
+  return `<table><thead><tr><th class="cbox-col"></th>
       <th>名称</th><th>IP 地址</th><th>端口</th><th>协议</th><th>服务</th>
       <th class="col-op" style="text-align:right">操作</th></tr></thead><tbody>
     ${list.map(p=>{ const on = ui.picked.has(String(p.id));
@@ -658,7 +660,7 @@ function poolTable(list, ro){
         {act:'pool-edit', id:p.id, label: ro?'查看':'编辑'},
         {act:'pool-del', id:p.id, label:'删除', danger:true, disabled: !!ro},
       ];
-      return `<tr data-batchpick="${p.id}"${acts?` class="row-click"${rowActsAttr(acts)}`:''}>${ck?`<td class="cbox-col"><div class="cbox ${on?'on':''}" data-act="pool-pick" data-id="${p.id}">${on?ICON.check:''}</div></td>`:''}
+      return `<tr data-batchpick="${p.id}"${acts?` class="row-click"${rowActsAttr(acts)}`:''}><td class="cbox-col">${ck?`<div class="cbox ${on?'on':''}" data-act="pool-pick" data-id="${p.id}">${on?ICON.check:''}</div>`:''}</td>
       <td><b>${esc(p.name)}</b><div class="sub">${esc(p.descr||'—')}</div></td>
       <td class="mono">${esc(p.ip)}</td><td class="mono">${esc(portText(p.port))}</td>
       <td><span class="badge">${esc(p.proto)}</span></td><td class="sub">${esc(svcOf(p.port))}</td>
@@ -666,7 +668,7 @@ function poolTable(list, ro){
         <button class="btn sm" data-act="pool-edit" data-id="${p.id}">${ro?'查看':'编辑'}</button>
         <button class="btn sm danger" data-act="pool-del" data-id="${p.id}" ${ro?'disabled style="opacity:.25"':''}>删除</button>
       </div></td></tr>`;}).join('')
-      || `<tr><td colspan="${ck?7:6}"><div class="empty"><p>没有匹配的条目</p></div></td></tr>`}
+      || `<tr><td colspan="7"><div class="empty"><p>没有匹配的条目</p></div></td></tr>`}
     </tbody></table>`;
 }
 function renderPoolTable(){

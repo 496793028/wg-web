@@ -669,10 +669,15 @@ body.theme-light .lp-glow{border-color:rgba(47,107,255,.75);
   .profile-actions .btn.block{flex:1 1 0;width:auto;min-width:0;padding:9px 8px}
   /* 竖屏移除「操作」列：改为点击整条、在弹出的选单里操作（横屏保留该列与原有按钮） */
   .col-op{display:none}
-  /* 目的地池工具栏（竖屏）：搜索占满一行，添加/批量删除并排，不再各占整宽 */
-  .dest-toolbar{flex-wrap:wrap;align-items:center}
+  /* 目的地池工具栏（竖屏）：搜索占满一行；添加 / 批量管理 按内容自适应宽度（不撑满），左侧并排 */
+  .dest-toolbar{flex-wrap:wrap;align-items:center;gap:9px}
   .dest-toolbar .sfield{flex:1 1 100%;max-width:none}
-  .dest-toolbar .btn{flex:1 1 0}
+  .dest-toolbar .btn{flex:0 0 auto;padding:8px 14px;font-size:12.5px}
+  /* 勾选列常驻（非批量态仅留空列），竖屏下适当收窄少占宽度 */
+  .cbox-col{width:34px}
+  /* 页面提示：移到竖屏底栏上方、水平居中 */
+  .toast-wrap{left:0;right:0;bottom:78px;align-items:center;padding:0 14px}
+  .toast{max-width:100%}
 }
 @media(prefers-reduced-motion:reduce){
   *{animation-duration:.01ms!important;transition-duration:.01ms!important}
