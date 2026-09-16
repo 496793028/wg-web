@@ -368,11 +368,25 @@ tbody tr:last-child td{border-bottom:none}
 .row-click{cursor:pointer}
 .audit-line{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--dim)}
 
-/* ============ Tabs ============ */
-.tabs{display:inline-flex;gap:4px;background:var(--bg2);border:1px solid var(--line);padding:4px;border-radius:12px;margin-bottom:16px}
-.tab{padding:7px 15px;border-radius:9px;font-size:13px;color:var(--dim);transition:background .2s,color .2s}
+/* ============ 标签页（分段控件）：滑动高亮 + 内容入场 ============ */
+.tabs{position:relative;display:inline-flex;gap:4px;background:var(--bg2);border:1px solid var(--line);
+  padding:4px;border-radius:12px;margin-bottom:16px;overflow:hidden}
+/* 滑动高亮块：与侧栏 .dock-cursor / 底栏 .mbar-cursor 同源质感 */
+.tabs-cursor{position:absolute;left:0;top:0;width:0;height:0;border-radius:9px;z-index:0;pointer-events:none;
+  background:linear-gradient(135deg,rgba(76,141,255,.26),rgba(124,92,255,.26));
+  border:1px solid rgba(140,175,255,.55);
+  box-shadow:0 4px 16px -6px rgba(76,141,255,.75), inset 0 0 12px rgba(140,175,255,.18);
+  transition:transform .42s var(--ease), width .38s var(--ease), height .38s var(--ease)}
+body.theme-light .tabs-cursor{background:linear-gradient(135deg,rgba(47,107,255,.15),rgba(124,92,255,.15));
+  border-color:rgba(47,107,255,.45);box-shadow:0 4px 14px -6px rgba(47,107,255,.42)}
+.tab{position:relative;z-index:1;padding:7px 15px;border-radius:9px;font-size:13px;color:var(--dim);
+  transition:color .25s var(--ease)}
 .tab:hover{color:var(--txt)}
-.tab.on{background:var(--panel2);color:var(--txt);box-shadow:0 2px 8px -4px rgba(0,0,0,.5)}
+.tab.on{background:transparent;box-shadow:none;color:var(--txt)}
+/* 内容随切换入场：淡入 + 上浮 + 轻微去模糊 */
+.tab-pane{animation:tabPaneIn .34s var(--ease) both}
+@keyframes tabPaneIn{from{opacity:0;transform:translateY(10px);filter:blur(2px)}
+  to{opacity:1;transform:none;filter:blur(0)}}
 
 /* ============ 搜索框 ============ */
 .sfield{position:relative;display:flex;align-items:center;background:var(--input-bg);border:1px solid var(--line);

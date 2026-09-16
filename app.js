@@ -212,9 +212,10 @@ function render(){
   app.innerHTML = shell();
   document.body.classList.toggle('dock-open', ui.dockOpen);
   bindSF();
-  requestAnimationFrame(()=>{ moveCursorTo(); moveMbarCursor(); if(ui.route==='audit'){ bindLogFilters(); loadLogs(); } });
+  requestAnimationFrame(()=>{ moveCursorTo(); moveMbarCursor(); moveTabCursors(); if(ui.route==='audit'){ bindLogFilters(); loadLogs(); } });
 }
 function refresh(){ const m=$('#mainView'); if(m){ m.innerHTML = `<div class="view">${routeView()}</div>`; bindSF();
+  requestAnimationFrame(moveTabCursors);
   if(ui.route==='audit'){ bindLogFilters(); loadLogs(); } } }
 
 /* 品牌图标：登录页与初始化页共用，避免两处各写一份 SVG */
@@ -369,10 +370,40 @@ function moveMbarCursor(){
 let cursorRaf=0;
 function relayoutCursors(){
   cancelAnimationFrame(cursorRaf);
-  cursorRaf=requestAnimationFrame(()=>{ moveCursorTo(); moveMbarCursor(); });
+  cursorRaf=requestAnimationFrame(()=>{ moveCursorTo(); moveMbarCursor(); moveTabCursors(); });
 }
 addEventListener('resize', relayoutCursors);
 addEventListener('orientationchange', ()=>setTimeout(relayoutCursors, 160));   // 等视口尺寸稳定再量
+
+/* 标签页（分段控件）的滑动高亮：与侧栏 / 底栏同款「圆角高亮滑过去」。
+   切标签会整屏重渲染，游标元素是全新的、CSS 无法自动从旧位置过渡，
+   所以用 FLIP：切换前记下高亮块旧位置，重渲染后先瞬移回旧位置，再过渡到新标签处。 */
+let tabFlipFrom=null;
+function rememberTabCursor(){
+  const cur=document.querySelector('.tabs .tabs-cursor'); if(!cur) return;
+  const r=cur.getBoundingClientRect();
+  if(r.width) tabFlipFrom={x:r.left, y:r.top, w:r.width, h:r.height};
+}
+function moveTabCursors(){
+  document.querySelectorAll('.tabs').forEach(tb=>{
+    const cur=tb.querySelector('.tabs-cursor'), on=tb.querySelector('.tab.on');
+    if(!cur || !on) return;
+    const w=on.offsetWidth, h=on.offsetHeight; if(!w) return;
+    const br=tb.getBoundingClientRect();
+    const x=on.getBoundingClientRect().left - br.left - tb.clientLeft;
+    const y=on.getBoundingClientRect().top  - br.top  - tb.clientTop;
+    if(tabFlipFrom){
+      const f=tabFlipFrom; tabFlipFrom=null;
+      cur.style.transition='none';
+      cur.style.width=f.w+'px'; cur.style.height=f.h+'px';
+      cur.style.transform=`translate(${f.x-br.left-tb.clientLeft}px, ${f.y-br.top-tb.clientTop}px)`;
+      void cur.offsetWidth;                       // 强制回流：把「旧位置」落定为过渡起点
+      cur.style.transition='';
+    }
+    cur.style.width=w+'px'; cur.style.height=h+'px';
+    cur.style.transform=`translate(${x}px, ${y}px)`;
+  });
+}
 
 /* 头像下拉菜单 */
 function toggleAvatarMenu(src){
@@ -651,8 +682,9 @@ function viewDest(){
       <div class="page-desc">先维护 IP-端口池，再组合成「目的地包」，授权时可直接按包分配</div></div>
     ${ui.destTab!=='pool'?`<div class="hd-actions"><button class="btn primary" data-act="pkg-new" ${ro?'disabled':''}>+ 新增目的地包</button></div>`:''}</div>
     ${ro?'<div class="ro-bar">当前账号对该模块只有查看权限。</div>':''}
-    <div class="tabs"><div class="tab ${ui.destTab==='pool'?'on':''}" data-act="dtab" data-v="pool">IP-端口池</div>
-      <div class="tab ${ui.destTab==='pkg'?'on':''}" data-act="dtab" data-v="pkg">目的地包</div></div>${body}`;
+    <div class="tabs"><div class="tabs-cursor"></div><div class="tab ${ui.destTab==='pool'?'on':''}" data-act="dtab" data-v="pool">IP-端口池</div>
+      <div class="tab ${ui.destTab==='pkg'?'on':''}" data-act="dtab" data-v="pkg">目的地包</div></div>
+    <div class="tab-pane">${body}</div>`;
 }
 function poolTable(list, ro){
   const ck = ui.batch;
@@ -869,16 +901,17 @@ function viewAudit(){
       <td class="sub mono">${esc(a.ip||'—')}</td></tr>`).join('');
     return `<div class="page-hd"><div><div class="page-title">访问追踪</div>
       <div class="page-desc">管理员在本平台的操作留痕，满足安全审计的可追溯要求</div></div></div>
-      <div class="tabs"><div class="tab" data-act="atab" data-v="access">用户访问记录</div>
+      <div class="tabs"><div class="tabs-cursor"></div><div class="tab" data-act="atab" data-v="access">用户访问记录</div>
         <div class="tab on" data-act="atab" data-v="audit">管理员操作审计</div></div>
-      <div class="tbl-wrap"><table><thead><tr><th>时间</th><th>操作人</th><th>操作类型</th><th>对象</th><th>来源 IP</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="5"><div class="empty"><p>暂无审计记录</p></div></td></tr>'}</tbody></table></div>`;
+      <div class="tab-pane"><div class="tbl-wrap"><table><thead><tr><th>时间</th><th>操作人</th><th>操作类型</th><th>对象</th><th>来源 IP</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5"><div class="empty"><p>暂无审计记录</p></div></td></tr>'}</tbody></table></div></div>`;
   }
   return `<div class="page-hd"><div><div class="page-title">访问追踪</div>
       <div class="page-desc">每一条新建连接：谁、在什么时候、访问了哪个 IP 的哪个端口、是否被放行</div></div>
     <div class="hd-actions"><button class="btn" data-act="csv">导出 CSV</button></div></div>
-    <div class="tabs"><div class="tab on" data-act="atab" data-v="access">用户访问记录</div>
+    <div class="tabs"><div class="tabs-cursor"></div><div class="tab on" data-act="atab" data-v="access">用户访问记录</div>
       <div class="tab" data-act="atab" data-v="audit">管理员操作审计</div></div>
+    <div class="tab-pane">
     <div class="stats" id="statBox">${statHTML()}</div>
     <div class="filters">
       <div style="min-width:172px">${combo('c_fname',{label:'姓名',value:ui.f.name,ph:'全部用户',
@@ -895,7 +928,8 @@ function viewAudit(){
         options:[{v:'',t:'全部'},{v:'1',t:'最近 1 天'},{v:'7',t:'最近 7 天'},{v:'30',t:'最近 30 天'}],
         onPick:v=>{ ui.f.days=v; refresh(); loadLogs(); }})}</div>
       <button class="btn" data-act="fclear">重置</button></div>
-    <div class="tbl-wrap" id="logTbl">${logTblHTML()}</div>`;
+    <div class="tbl-wrap" id="logTbl">${logTblHTML()}</div>
+    </div>`;
 }
 function logTblHTML(){
   const rows = S.logs.slice(0,200).map(l=>`<tr><td class="audit-line">${fmt(l.ts)}</td>
@@ -1040,8 +1074,8 @@ const ACT = {
     try{ await api('POST','auth/logout',{}); }catch{}
     me=null; render(); },
 
-  'dtab': el=>{ ui.destTab=el.dataset.v; saveUi(); refresh(); },
-  'atab': el=>{ ui.auditTab=el.dataset.v; saveUi(); refresh();
+  'dtab': el=>{ rememberTabCursor(); ui.destTab=el.dataset.v; saveUi(); refresh(); },
+  'atab': el=>{ rememberTabCursor(); ui.auditTab=el.dataset.v; saveUi(); refresh();
     if(ui.auditTab==='access'){ bindLogFilters(); loadLogs(); }
     else loadAudits().then(()=>refresh()); },
   'fclear': ()=>{ ui.f={name:'',dst:'',port:'',act:'',days:''}; refresh(); loadLogs(); },
