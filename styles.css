@@ -364,14 +364,8 @@ tbody tr{transition:background .15s}
 tbody tr:hover{background:var(--panel2)}
 tbody tr:last-child td{border-bottom:none}
 .row-acts{display:flex;gap:6px;justify-content:flex-end;align-items:center}
-/* 条目点击弹选单：整行/整卡可点，右侧仅留一个「⋯」提示（不再是按钮） */
+/* 竖屏：整条可点（点击弹出操作选单，代替右侧操作列） */
 .row-click{cursor:pointer}
-.row-op{text-align:right;white-space:nowrap;width:56px}
-.row-hint{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;
-  color:var(--faint);background:var(--panel2);border:1px solid var(--line);transition:color .2s,background .2s}
-.row-hint svg{width:15px;height:15px}
-.row-click:hover .row-hint{color:var(--txt);background:var(--line)}
-.ph-right{display:inline-flex;align-items:center;gap:8px;flex:none}
 .audit-line{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--dim)}
 
 /* ============ Tabs ============ */
@@ -511,33 +505,40 @@ body.theme-light .drawer-wrap,body.theme-light .modal-wrap{background:rgba(20,30
 .mtop-avatar svg{width:20px;height:20px;color:#fff}
 .mtop-avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .mtop-title{font-size:15px;font-weight:600;color:var(--txt)}
-/* 竖屏底栏：与横屏侧栏（Dock）保持一致的质感与动效 —— 磨砂玻璃、悬停浮起、按下回弹、选中填充 */
-.mbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:30;align-items:center;
-  height:62px;padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+/* 竖屏底栏：沿用横屏侧栏（Dock）的质感与动效 —— 磨砂玻璃 + 滑动圆角方形高亮 + 颜色变化。
+   每个条目是「图标在上、文字在下」的圆角方形；选中项由一块高亮圆角方形平滑滑入。 */
+.mbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:30;align-items:stretch;
+  height:66px;padding:6px 8px calc(6px + env(safe-area-inset-bottom));
   background:var(--dock-bg);border-top:1px solid var(--dock-border);
   box-shadow:0 -2px 24px -12px rgba(0,0,0,.55);
   -webkit-backdrop-filter:var(--dock-blur);backdrop-filter:var(--dock-blur);gap:6px}
-.mbar-item{flex:1;height:100%;border:none;background:transparent;color:var(--dim);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-  border-radius:14px;transition:color .2s,background .2s;position:relative;overflow:hidden}
-.mbar-item .mb-ico{width:30px;height:30px;border-radius:13px;display:grid;place-items:center;
-  background:transparent;border:1px solid transparent;
-  transition:background .25s var(--ease),transform .15s var(--ease),box-shadow .25s var(--ease)}
+/* 滑动圆角方形高亮：与 .dock-cursor 同源（渐变 + 描边 + 光晕），随选中项平移 */
+.mbar-cursor{position:absolute;left:0;top:0;width:0;height:0;border-radius:14px;z-index:0;
+  background:linear-gradient(135deg,rgba(76,141,255,.22),rgba(124,92,255,.22));
+  border:1.5px solid rgba(140,175,255,.7);
+  box-shadow:0 8px 22px -8px rgba(76,141,255,.85), inset 0 0 14px rgba(140,175,255,.18), 0 0 0 4px rgba(76,141,255,.07);
+  transition:transform .45s var(--ease), width .42s var(--ease), height .42s var(--ease);pointer-events:none}
+body.theme-light .mbar-cursor{background:linear-gradient(135deg,rgba(47,107,255,.16),rgba(124,92,255,.16));
+  border-color:rgba(47,107,255,.55);box-shadow:0 8px 18px -8px rgba(47,107,255,.4), inset 0 0 0 1px rgba(47,107,255,.12)}
+.mbar-item{position:relative;z-index:1;flex:1;height:100%;border:none;background:transparent;color:var(--dim);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:14px;
+  overflow:hidden;transition:color .25s var(--ease)}
+.mbar-item .mb-ico{width:23px;height:23px;display:grid;place-items:center;transition:transform .2s var(--ease)}
 .mbar-item .mb-ico .ico{width:21px;height:21px;transition:color .25s var(--ease)}
-.mbar-item:hover .mb-ico{background:var(--ico-bg);border-color:var(--ico-border);
-  transform:translateY(-2px);box-shadow:0 6px 14px -8px rgba(0,0,0,.5)}
-.mbar-item:active .mb-ico{transform:scale(.92);background:var(--ico-bg)}
-.mbar-item .mb-label{font-size:10.5px;white-space:nowrap;transition:color .2s}
-.mbar-item.sel{color:var(--txt)}
-/* 选中态：与侧栏选中图标同理 —— 渐变填充 + 白色图标，质感一致 */
-.mbar-item.sel .mb-ico{background:linear-gradient(135deg,rgba(76,141,255,.22),rgba(124,92,255,.22));
-  border-color:rgba(140,175,255,.55);box-shadow:0 6px 16px -8px rgba(76,141,255,.6)}
-.mbar-item.sel .mb-ico .ico{color:#fff}
+.mbar-item .mb-label{font-size:10.5px;white-space:nowrap;transition:color .25s var(--ease)}
+.mbar-item:hover .mb-ico{transform:translateY(-1px)}
+.mbar-item:active .mb-ico{transform:scale(.9)}
+/* 选中态：图标与文字变白（颜色变化由高亮块滑入时一并完成） */
+.mbar-item.sel{color:#fff}
+.mbar-item.sel .mb-ico .ico{color:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.3))}
 
 /* ============ 个人资料页（设置） ============ */
-/* 横屏 / 桌面：左右两栏（资料卡 + 权限卡），符合宽屏阅读习惯 */
-.settings-grid{display:grid;grid-template-columns:minmax(300px,360px) 1fr;gap:18px;align-items:start;max-width:920px}
-.profile-hero{max-width:none}
+/* 横屏 / 桌面：头像卡 + 权限卡并排等高；改密/退出移出资料卡，在下方独立一行、两按钮横向并排 */
+.settings-grid{display:grid;grid-template-columns:minmax(280px,340px) 1fr;gap:18px;align-items:stretch;max-width:920px}
+.profile-hero{display:contents}
+.profile-hero-inner{grid-column:1;grid-row:1;min-width:0;background:var(--panel);border:1px solid var(--line);
+  border-radius:16px;padding:16px;box-shadow:var(--elev);animation:rise .4s var(--ease) backwards}
+.profile-perms-card{grid-column:2;grid-row:1;min-width:0}
 .profile-top{display:flex;align-items:center;gap:18px;padding:6px 4px 18px}
 /* 头像：外层按钮不再裁剪；内层 .pa-thumb 负责圆形裁剪，上传角标（.pa-edit）才能完整露出 */
 .profile-avatar{position:relative;width:84px;height:84px;border:none;background:transparent;flex:none;
@@ -565,7 +566,9 @@ body.theme-light .drawer-wrap,body.theme-light .modal-wrap{background:rgba(20,30
 .pp-hd{font-size:12px;color:var(--dim);margin-bottom:2px}
 .perm-row{display:flex;align-items:center;justify-content:space-between;font-size:13.5px}
 .perm-mod{color:var(--txt)}
-.profile-actions{display:flex;flex-direction:column;gap:12px;margin-top:18px}
+/* 下方独立一行：修改密码 / 退出登录 横向并排 */
+.profile-actions{grid-column:1 / -1;grid-row:2;display:flex;flex-direction:row;gap:12px;margin-top:0}
+.profile-actions .btn.block{flex:1 1 0;width:auto;padding:11px 12px}
 .pf-row{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;
   background:var(--panel2);border:1px solid var(--line);border-radius:12px}
 .pf-label{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;color:var(--txt)}
@@ -634,16 +637,16 @@ body.theme-light .warn-box{color:#c0392b}
   .page-hd{flex-direction:column;align-items:flex-start;gap:10px}
   .hd-actions{width:100%}
   .card-grid{grid-template-columns:1fr}
-  /* 设置页（竖屏）：头像卡与权限卡并排等高；改密/退出移出资料卡，在下方并列 */
-  .settings-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:stretch}
-  .profile-hero{display:contents}
-  .profile-hero-inner{grid-column:1;grid-row:1;min-width:0;background:var(--panel);border:1px solid var(--line);
-    border-radius:16px;padding:16px}
-  .profile-perms-card{grid-column:2;grid-row:1;min-width:0}
-  .profile-perms-card .profile-perms{padding:12px 10px}
-  .profile-perms-card .perm-row{flex-wrap:wrap;gap:4px}
-  .profile-actions{grid-column:1 / -1;grid-row:2;flex-direction:row;flex-wrap:nowrap;margin-top:0}
-  .profile-actions .btn.block{flex:1 1 0;width:auto;padding:11px 10px}
+  /* 设置页（竖屏）：回退为单列堆叠，改密/退出回到资料卡内 */
+  .settings-grid{grid-template-columns:1fr;align-items:start}
+  .profile-hero{display:block;max-width:none}
+  .profile-hero-inner{grid-column:auto;grid-row:auto;background:transparent;border:0;border-radius:0;padding:0;
+    box-shadow:none;animation:none}
+  .profile-perms-card{grid-column:auto;grid-row:auto}
+  .profile-actions{grid-column:auto;grid-row:auto;flex-direction:column;gap:12px;margin-top:18px}
+  .profile-actions .btn.block{flex:none;width:100%;padding:11px}
+  /* 竖屏移除「操作」列：改为点击整条、在弹出的选单里操作（横屏保留该列与原有按钮） */
+  .col-op{display:none}
   /* 目的地池工具栏（竖屏）：搜索占满一行，添加/批量删除并排，不再各占整宽 */
   .dest-toolbar{flex-wrap:wrap;align-items:center}
   .dest-toolbar .sfield{flex:1 1 100%;max-width:none}

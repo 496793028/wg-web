@@ -212,7 +212,7 @@ function render(){
   app.innerHTML = shell();
   document.body.classList.toggle('dock-open', ui.dockOpen);
   bindSF();
-  requestAnimationFrame(()=>{ moveCursorTo(); if(ui.route==='audit'){ bindLogFilters(); loadLogs(); } });
+  requestAnimationFrame(()=>{ moveCursorTo(); moveMbarCursor(); if(ui.route==='audit'){ bindLogFilters(); loadLogs(); } });
 }
 function refresh(){ const m=$('#mainView'); if(m){ m.innerHTML = `<div class="view">${routeView()}</div>`; bindSF();
   if(ui.route==='audit'){ bindLogFilters(); loadLogs(); } } }
@@ -323,7 +323,7 @@ function shell(){
     </nav>
     <button class="dock-expand" data-act="dock-toggle" title="展开 / 收起">${ICON.expand}</button>
   </div></div>`;
-  const mbar = `<div class="mbar">${items.map(it=>`
+  const mbar = `<div class="mbar"><div class="mbar-cursor" id="mbarCursor"></div>${items.map(it=>`
     <button class="mbar-item ${ui.sel===it.sel?'sel':''}" data-act="nav" data-k="${it.k}" data-sel="${it.sel}">
       <span class="mb-ico">${it.ico}</span><span class="mb-label">${it.n}</span></button>`).join('')}</div>`;
   const mtop = `<div class="mtop">
@@ -352,6 +352,16 @@ function moveCursorTo(){
   const labels = parseFloat(cs.getPropertyValue('--labels')) || 0;
   cur.style.width = (rail + labels - 28) + 'px';   // 自定义属性即时翻转，取目标宽度（不受过渡动画影响）
   cur.style.transform = `translateY(${el.offsetTop}px)`;
+}
+/* 竖屏底栏：滑动圆角方形高亮，跟随选中项平移（与侧栏 .dock-cursor 同款动画 + 颜色变化） */
+function moveMbarCursor(){
+  const cur = document.getElementById('mbarCursor'); if(!cur) return;
+  const bar = cur.parentElement; if(!bar) return;
+  const el = bar.querySelector('.mbar-item.sel'); if(!el) return;
+  const br = bar.getBoundingClientRect(), er = el.getBoundingClientRect();
+  cur.style.width = er.width + 'px';
+  cur.style.height = er.height + 'px';
+  cur.style.transform = `translate(${er.left - br.left - bar.clientLeft}px, ${er.top - br.top - bar.clientTop}px)`;
 }
 
 /* 头像下拉菜单 */
@@ -407,22 +417,24 @@ function layerHasUnsavedInput(){
 function rowMore(acts){
   return `<button class="btn sm row-more" data-act="row-more" data-acts='${JSON.stringify(acts)}' title="更多操作" aria-label="更多操作">${ICON.more}</button>`;
 }
-/* 条目（表格行 / 卡片）：把「删除 / 修改」等右侧按钮收敛为「点击整条即弹选单」。
-   - rowActsAttr(acts) 挂到 <tr>/卡片上；点击该条目任意非交互区域即弹出同一份选单；
-   - rowHint() 仅作「此处可点击」的视觉提示（⋯），不再是按钮（横竖屏一致）。 */
+/* 条目（表格行 / 卡片）：竖屏下点击整条即在点击位置弹出操作选单；横屏保留操作列按钮。 */
 function rowActsAttr(acts){ return ` data-rowacts='${JSON.stringify(acts)}'`; }
-function rowHint(){ return `<span class="row-hint" aria-hidden="true">${ICON.more}</span>`; }
-function openActionMenu(anchor, acts){
+function openActionMenu(anchor, acts, pt){
   document.getElementById('popMenu')?.remove();
-  const r = anchor.getBoundingClientRect();
   const m = document.createElement('div'); m.className='avatar-menu pop-menu'; m.id='popMenu';
   m.innerHTML = (acts||[]).map(a=>`<button class="am-item ${a.danger?'danger':''}" data-act="${a.act}" data-id="${a.id}" ${a.disabled?'disabled':''}>${esc(a.label)}</button>`).join('')
     || '<div class="am-item" style="color:var(--faint)">无可执行操作</div>';
   document.body.appendChild(m);
   const mw=m.offsetWidth, mh=m.offsetHeight;
-  let left=Math.min(r.right - mw, window.innerWidth - mw - 8); if(left<8) left=8;
-  let top=r.bottom + 8;
-  if(top + mh > window.innerHeight - 8) top=Math.max(8, r.top - mh - 8);
+  let left, top, refTop;
+  if(pt){                                   // 点击条目触发：在点击位置弹出
+    left=pt.x; refTop=pt.y; top=pt.y + 6;
+  }else{                                    // 「更多」按钮触发：贴着按钮右下弹出
+    const r=anchor.getBoundingClientRect();
+    left=r.right - mw; refTop=r.top; top=r.bottom + 8;
+  }
+  left=Math.max(8, Math.min(left, window.innerWidth - mw - 8));
+  if(top + mh > window.innerHeight - 8) top=Math.max(8, refTop - mh - 8);
   m.style.left=left+'px'; m.style.top=top+'px';
   requestAnimationFrame(()=>m.classList.add('open'));
   m.addEventListener('click', e=>{ if(e.target.closest('[data-act]')) m.remove(); });
@@ -442,7 +454,7 @@ function openAvatarCrop(dataURL){
   img.src = dataURL;
 }
 function buildCropUI(img, dataURL){
-  const D=240, OUT=320;
+  const D=240, OUT=256;
   $('#layer').innerHTML = `<div class="modal-wrap" data-backdrop><div class="crop-modal">
     <div class="modal-hd"><h3>调整头像</h3><button class="icon-btn" data-close>×</button></div>
     <div class="crop-stage" id="cropStage">
@@ -554,14 +566,18 @@ function viewAccount(){
       : `<span class="badge ${a.perm[m.k]==='rw'?'ok':a.perm[m.k]==='r'?'warn':''}">${PERM_LABEL[a.perm[m.k]]||'无权限'}</span>`}</td>`).join('')}
     <td><span class="badge ${(a.status===1||a.status==='on')?'ok':'danger'}"><i class="dot"></i>${(a.status===1||a.status==='on')?'启用':'停用'}</span></td>
     <td class="sub">${a.last_login_at?ago(a.last_login_at):(a.lastLogin?ago(a.lastLogin):'—')}</td>
-    <td class="row-op">${rowHint()}</td></tr>`).join('');
+    <td class="col-op"><div class="row-acts">
+      <button class="btn sm" data-act="acct-edit" data-id="${a.id}">${ro?'查看':'编辑'}</button>
+      <button class="btn sm" data-act="acct-pw" data-id="${a.id}" ${ro?'disabled':''}>重置密码</button>
+      <button class="icon-btn del" data-act="acct-del" data-id="${a.id}" ${ro||a.role==='admin'?'disabled style="opacity:.25"':''}>×</button>
+    </div></td></tr>`).join('');
   return `<div class="page-hd"><div><div class="page-title">账号管理</div>
       <div class="page-desc">维护本平台登录账号，并按模块分配「无权限 / 仅查看 / 可修改」三级权限</div></div>
     <div class="hd-actions"><button class="btn primary" data-act="acct-new" ${ro?'disabled':''}>+ 新增账号</button></div></div>
     ${ro?'<div class="ro-bar">当前账号对该模块只有查看权限。</div>':''}
     <div class="tbl-wrap"><table>
       <thead><tr><th>姓名 / 登录名</th><th>角色</th>${MODULES.map(m=>`<th>${m.n}</th>`).join('')}
-      <th>状态</th><th>最后登录</th><th style="text-align:right">操作</th></tr></thead>
+      <th>状态</th><th>最后登录</th><th class="col-op" style="text-align:right">操作</th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
 }
 function acctForm(id){
@@ -614,12 +630,15 @@ function viewDest(){
           ])}>
           <div class="panel-hd"><div><div class="panel-title">${esc(k.name)}</div>
             <div class="sub" style="font-size:11.5px;color:var(--dim)">${esc(k.descr||'无说明')}</div></div>
-            <div class="ph-right"><span class="badge acc">${items.length} 项</span>${rowHint()}</div></div>
-          <div class="ucard-tags" style="min-height:40px;margin-bottom:2px">
+            <span class="badge acc">${items.length} 项</span></div>
+          <div class="ucard-tags" style="min-height:40px;margin-bottom:14px">
             ${items.length ? items.slice(0,4).map(p=>`<span class="tag pool">${esc(p.name)}
               <span style="opacity:.6">${esc(p.ip)}:${esc(portText(p.port))}</span></span>`).join('')
               + (items.length>4?`<span class="tag more">+${items.length-4}</span>`:'')
               : '<span class="empty-mini">尚未添加 IP-端口</span>'}</div>
+          <div style="display:flex;gap:8px" class="row-acts">
+            <button class="btn sm" data-act="pkg-edit" data-id="${k.id}">${ro?'查看内容':'管理内容'}</button>
+            <button class="btn sm danger" data-act="pkg-del" data-id="${k.id}" ${ro?'disabled':''}>删除</button></div>
         </div>`;}).join('') || '<div class="empty"><p>暂无目的地包</p></div>'}</div>`;
   }
   return `<div class="page-hd"><div><div class="page-title">目的地池</div>
@@ -633,7 +652,7 @@ function poolTable(list, ro){
   const ck = ui.batch;
   return `<table><thead><tr>${ck?'<th class="cbox-col"></th>':''}
       <th>名称</th><th>IP 地址</th><th>端口</th><th>协议</th><th>服务</th>
-      <th style="text-align:right">操作</th></tr></thead><tbody>
+      <th class="col-op" style="text-align:right">操作</th></tr></thead><tbody>
     ${list.map(p=>{ const on = ui.picked.has(String(p.id));
       const acts = ck ? null : [
         {act:'pool-edit', id:p.id, label: ro?'查看':'编辑'},
@@ -643,7 +662,10 @@ function poolTable(list, ro){
       <td><b>${esc(p.name)}</b><div class="sub">${esc(p.descr||'—')}</div></td>
       <td class="mono">${esc(p.ip)}</td><td class="mono">${esc(portText(p.port))}</td>
       <td><span class="badge">${esc(p.proto)}</span></td><td class="sub">${esc(svcOf(p.port))}</td>
-      <td class="row-op">${acts?rowHint():''}</td></tr>`;}).join('')
+      <td class="col-op"><div class="row-acts">
+        <button class="btn sm" data-act="pool-edit" data-id="${p.id}">${ro?'查看':'编辑'}</button>
+        <button class="btn sm danger" data-act="pool-del" data-id="${p.id}" ${ro?'disabled style="opacity:.25"':''}>删除</button>
+      </div></td></tr>`;}).join('')
       || `<tr><td colspan="${ck?7:6}"><div class="empty"><p>没有匹配的条目</p></div></td></tr>`}
     </tbody></table>`;
 }
@@ -956,7 +978,7 @@ const ACT = {
     if(ui.sel===sel && ui.route===k) return;
     ui.route=k; ui.sel=sel; ui.batch=false; ui.picked.clear(); saveUi();
     [...document.querySelectorAll('.dock-item, .mbar-item')].forEach(i=>i.classList.toggle('sel', i.dataset.sel===sel));
-    moveCursorTo();
+    moveCursorTo(); moveMbarCursor();
     const name=currentPathName();
     const sp=$('.strip-path b'); if(sp) sp.textContent=name;
     const mt=$('.mtop-title'); if(mt) mt.textContent=name;
@@ -1190,10 +1212,10 @@ document.addEventListener('click', e=>{
     return closeLayer();
   }
   if(!e.target.closest('.combo')) closeCombos();
-  /* 点击条目（表格行 / 卡片）的空白处，即在原位弹出操作选单（横竖屏一致） */
+  /* 竖屏：点击条目任意非交互区域，即在「点击位置」弹出操作选单（横屏保留操作列按钮，不触发） */
   const rh = e.target.closest('[data-rowacts]');
-  if(rh && !e.target.closest('button,a,input,select,textarea,.cbox,.sfield,[data-act]')){
-    try{ openActionMenu(rh, JSON.parse(rh.dataset.rowacts||'[]')); }catch{}
+  if(rh && isMobile() && !e.target.closest('button,a,input,select,textarea,.cbox,.sfield,[data-act]')){
+    try{ openActionMenu(rh, JSON.parse(rh.dataset.rowacts||'[]'), {x:e.clientX, y:e.clientY}); }catch{}
     return;
   }
   const t=e.target.closest('[data-act]'); if(!t) return;
