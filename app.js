@@ -658,7 +658,7 @@ function poolTable(list, ro){
         {act:'pool-edit', id:p.id, label: ro?'查看':'编辑'},
         {act:'pool-del', id:p.id, label:'删除', danger:true, disabled: !!ro},
       ];
-      return `<tr${acts?` class="row-click"${rowActsAttr(acts)}`:''}>${ck?`<td class="cbox-col"><div class="cbox ${on?'on':''}" data-act="pool-pick" data-id="${p.id}">${on?ICON.check:''}</div></td>`:''}
+      return `<tr data-batchpick="${p.id}"${acts?` class="row-click"${rowActsAttr(acts)}`:''}>${ck?`<td class="cbox-col"><div class="cbox ${on?'on':''}" data-act="pool-pick" data-id="${p.id}">${on?ICON.check:''}</div></td>`:''}
       <td><b>${esc(p.name)}</b><div class="sub">${esc(p.descr||'—')}</div></td>
       <td class="mono">${esc(p.ip)}</td><td class="mono">${esc(portText(p.port))}</td>
       <td><span class="badge">${esc(p.proto)}</span></td><td class="sub">${esc(svcOf(p.port))}</td>
@@ -709,7 +709,7 @@ function pkgListHTML(){
 function ucardHTML(v, i){
   const tags=grantTags(v), n=grantCount(v), black = v.mode==='deny';
   return `<div class="ucard ${black?'black':''} ${ui.picked.has(String(v.id))?'pick':''}" data-act="vpn-open" data-id="${v.id}"
-      style="animation-delay:${i*40}ms">
+      data-batchpick="${v.id}" style="animation-delay:${i*40}ms">
     <div class="cbox ucard-pick ${ui.picked.has(String(v.id))?'on':''}" data-act="vpn-pick" data-id="${v.id}">${ui.picked.has(String(v.id))?ICON.check:''}</div>
     <div class="ucard-top"><div class="avatar" style="background:${colorOf(v.name)}">${esc(v.name.slice(0,1))}</div>
       <div style="min-width:0"><div class="ucard-name">${esc(v.name)}</div><div class="ucard-ip">${esc(v.ip)}</div></div>
@@ -1205,7 +1205,31 @@ function ripple(host, e){
   r.style.left=(e.clientX-rc.left-d/2)+'px'; r.style.top=(e.clientY-rc.top-d/2)+'px';
   host.appendChild(r); setTimeout(()=>r.remove(),640);
 }
+/* 长按条目（触摸手势 / 移动端）：自动进入批量删除并勾选该条。
+   长按后吞掉尾随的 click —— 否则「进入批量」后这次点击会被当成点选，
+   把刚勾上的条目又取消（批量态下 vpn-open 会转为 vpn-pick 切换）。 */
+let lpTimer=null, lpStart=null, lpFired=false;
+document.addEventListener('pointerdown', e=>{
+  if(e.pointerType!=='touch' && !isMobile()) return;
+  const el = e.target.closest('[data-batchpick]'); if(!el) return;
+  if(e.target.closest('button,a,input,select,textarea,.cbox,.sfield,[data-act]')) return;
+  lpStart={x:e.clientX,y:e.clientY};
+  lpTimer=setTimeout(()=>{
+    lpTimer=null; lpFired=true; setTimeout(()=>{ lpFired=false; }, 700);   // 兜底复位
+    if(!ui.batch){ ui.batch=true; ui.picked.clear(); }
+    ui.picked.add(String(el.dataset.batchpick));
+    refresh();
+    toast('已进入批量删除，可继续点选其它条目');
+  }, 500);
+});
+const lpClear=()=>{ if(lpTimer){ clearTimeout(lpTimer); lpTimer=null; } lpStart=null; };
+document.addEventListener('pointerup', lpClear);
+document.addEventListener('pointercancel', lpClear);
+document.addEventListener('pointermove', e=>{
+  if(lpTimer && lpStart && (Math.abs(e.clientX-lpStart.x)>8 || Math.abs(e.clientY-lpStart.y)>8)) lpClear();
+});
 document.addEventListener('click', e=>{
+  if(lpFired){ lpFired=false; e.stopPropagation(); e.preventDefault(); return; }   // 长按已处理，吞掉尾随 click
   if(e.target.closest('[data-close]')) return closeLayer();
   if(e.target.matches('[data-backdrop]')){
     if(isMobile() && layerHasUnsavedInput()) return;   // 移动端：二级菜单内有未保存输入时不关闭
