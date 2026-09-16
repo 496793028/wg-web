@@ -785,9 +785,12 @@ function poolForm(id){
     <div class="field"><label>端口或区间，用逗号分隔</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口"></div></div>
     <div class="field"><label>协议（可多选，同时按所选协议放行）</label>
       <div class="proto-chks">
-        <label class="proto-chk"><input type="checkbox" name="proto" value="TCP" ${chk('TCP')} ${ro?'disabled':''}><b>TCP</b></label>
-        <label class="proto-chk"><input type="checkbox" name="proto" value="UDP" ${chk('UDP')} ${ro?'disabled':''}><b>UDP</b></label>
-      </div></div>
+        ${['TCP','UDP'].map(v=>`<label class="proto-chk ${chk(v)?'on':''}${ro?' ro':''}">
+          <input type="checkbox" name="proto" value="${v}" ${chk(v)} ${ro?'disabled':''}>
+          <span class="pc-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>
+          <span class="pc-txt">${v}</span></label>`).join('')}
+      </div>
+      <div class="hint">同时勾选 TCP 与 UDP = 同一 IP:端口 两种协议一起放行。</div></div>
     <div class="field" style="margin-bottom:0"><label>说明</label>
       <input name="descr" value="${esc(p.descr||'')}" ${ro?'disabled':''}></div>`;
 }
@@ -1403,6 +1406,11 @@ document.addEventListener('click', e=>{
   }
 });
 document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeCombos(); closeLayer(); } });
+/* 协议勾选胶囊：勾选状态同步到外壳 .on（外壳高亮不用 :has()，兼容所有浏览器） */
+document.addEventListener('change', e=>{
+  const i=e.target.closest('.proto-chk input'); if(!i) return;
+  i.closest('.proto-chk')?.classList.toggle('on', i.checked);
+});
 
 /* ---------------- 启动 ---------------- */
 (async ()=>{

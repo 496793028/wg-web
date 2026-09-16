@@ -369,14 +369,31 @@ tbody tr:last-child td{border-bottom:none}
 /* 目的地包卡片：与 VPN/池卡片同款「悬停上浮 + 点击涟漪」（涟漪容器需要 relative + overflow:hidden） */
 .panel.pkg-card{position:relative;overflow:hidden;transition:transform .16s,border-color .2s,box-shadow .2s}
 .panel.pkg-card:hover{transform:translateY(-3px);border-color:var(--line2);box-shadow:0 16px 34px -20px rgba(0,0,0,.8)}
-/* 协议多选（IP-端口池表单）：可勾选胶囊，TCP/UDP 可同时授权 */
+/* 协议多选（IP-端口池表单）：可勾选胶囊组件。
+   不使用 :has()（兼容性差）—— 勾选状态由 input:checked+Sibling 管方块、JS 管 .on 管外壳。 */
 .proto-chks{display:flex;gap:10px;flex-wrap:wrap}
-.proto-chk{display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border:1px solid var(--line);
-  border-radius:11px;background:var(--input-bg);cursor:pointer;font-size:13px;color:var(--dim);
-  transition:border-color .2s,background .2s,color .2s;user-select:none}
-.proto-chk:hover{border-color:var(--line2);color:var(--txt)}
-.proto-chk:has(input:checked){border-color:var(--accent);background:rgba(76,141,255,.14);color:var(--txt)}
-.proto-chk input{width:15px;height:15px;accent-color:var(--accent);margin:0}
+.proto-chk{position:relative;display:inline-flex;align-items:center;gap:9px;padding:10px 16px;
+  border:1px solid var(--line);border-radius:13px;background:var(--input-bg);cursor:pointer;user-select:none;
+  transition:transform .16s var(--ease),border-color .2s,background .25s,box-shadow .25s}
+.proto-chk:hover{transform:translateY(-2px);border-color:var(--line2)}
+.proto-chk input{position:absolute;opacity:0;pointer-events:none}
+.proto-chk .pc-box{width:18px;height:18px;border-radius:6px;border:1.5px solid var(--line2);display:grid;
+  place-items:center;color:transparent;background:transparent;transition:all .2s var(--ease);flex:none}
+.proto-chk .pc-box svg{width:11px;height:11px}
+.proto-chk .pc-txt{font-size:13px;font-weight:600;letter-spacing:.6px;color:var(--dim);transition:color .2s}
+.proto-chk.on{border-color:rgba(140,175,255,.55);
+  background:linear-gradient(135deg,rgba(76,141,255,.20),rgba(124,92,255,.20));
+  box-shadow:0 6px 18px -8px rgba(76,141,255,.65), inset 0 0 12px rgba(140,175,255,.14);
+  animation:pcPop .28s var(--ease)}
+.proto-chk.on .pc-box{border-color:rgba(140,175,255,.9);color:#fff;
+  background:linear-gradient(135deg,#4c8dff,#7c5cff);box-shadow:0 0 12px rgba(76,141,255,.55)}
+.proto-chk.on .pc-txt{color:var(--txt)}
+.proto-chk.ro{cursor:not-allowed;opacity:.55}
+.proto-chk.ro:hover{transform:none;border-color:var(--line)}
+@keyframes pcPop{0%{transform:scale(.96)}55%{transform:scale(1.02)}100%{transform:scale(1)}}
+body.theme-light .proto-chk.on{background:linear-gradient(135deg,rgba(47,107,255,.12),rgba(124,92,255,.12));
+  border-color:rgba(47,107,255,.5);box-shadow:0 6px 16px -8px rgba(47,107,255,.45)}
+body.theme-light .proto-chk.on .pc-box{background:linear-gradient(135deg,#2f6bff,#6a4cff);border-color:rgba(47,107,255,.8)}
 .audit-line{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--dim)}
 
 /* ============ 标签页（分段控件）：滑动高亮 + 内容入场 ============ */
