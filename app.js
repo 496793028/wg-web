@@ -813,7 +813,7 @@ function ucardHTML(v, i){
     <div class="ucard-body"><div class="ucard-tags">
       ${tags.length ? tags.slice(0,3).map(t=>`<span class="tag ${t.cls}">${esc(t.t)}</span>`).join('')
         + (tags.length>3?`<span class="tag more">+${tags.length-3}</span>`:'')
-        : '<span class="empty-mini">尚未授权任何目的地</span>'}</div></div>
+        : `<span class="empty-mini">${black?'已授权所有目的地访问':'尚未授权任何目的地'}</span>`}</div></div>
     <div class="ucard-ft"><span>${black?`${n} 个禁止例外`:`${n} 个可访问目的地`}</span>
       <div class="ft-meta">
         ${black?`<span class="mode-badge">黑名单</span>`:''}
@@ -1243,8 +1243,10 @@ const ACT = {
   /* VPN */
   'vpn-new': ()=> modal({title:'新增 VPN 用户', body:vpnForm(), onOk: async ()=>{
       const g=readForm(); if(!g.name){ toast('请输入真实姓名','err'); return false; }
-      const r=await api('POST','vpn',g); await loadState(); toast(`已创建 ${r.vpn_ip}，默认空权限`,'warn');
-      if(r && r.id) setTimeout(()=>showVpnConf(r.id), 60);
+      const r=await api('POST','vpn',g); await loadState();
+      /* 新用户还没有任何授权 → AllowedIPs 里为空，此刻弹出的 conf 只要一配地址就作废了，
+         所以创建时不再弹配置页；改为提示去卡片里配置目的地（配好并保存时由 grant-save 按需弹 conf）。 */
+      toast(`已创建 ${r.vpn_ip}（默认空权限）—— 点卡片配置可访问的目的地`,'warn');
       refresh(); }}),
   'vpn-del': el=>{ const v=vuser(el.dataset.id);
     confirmBox('删除 VPN 用户',`确定删除 <b>${esc(v.name)}</b>（${esc(v.ip)}）吗？历史访问记录会保留。`, async ()=>{
