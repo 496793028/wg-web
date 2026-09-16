@@ -680,6 +680,11 @@ body.theme-light .lp-glow{border-color:rgba(47,107,255,.75);
   .profile-actions .btn.block{flex:1 1 0;width:auto;min-width:0;padding:9px 8px}
   /* 竖屏移除「操作」列：改为点击整条、在弹出的选单里操作（横屏保留该列与原有按钮） */
   .col-op{display:none}
+  /* 目的地池表格（竖屏）：表头不换行（「服务」不再被拆成两行）；端口列收窄到约两个汉字；
+     名称略缩小但仍保留加粗 —— 让 7 列在窄屏下也放得下 */
+  .pool-tbl thead th{white-space:nowrap}
+  .pool-tbl th:nth-child(4), .pool-tbl td:nth-child(4){width:2.6em;padding-left:6px;padding-right:6px}
+  .pool-tbl td:nth-child(2) b{font-size:12.5px}
   /* 目的地池工具栏（竖屏）：搜索占满一行；添加 / 批量管理 按内容自适应宽度（不撑满），左侧并排 */
   .dest-toolbar{flex-wrap:wrap;align-items:center;gap:9px}
   .dest-toolbar .sfield{flex:1 1 100%;max-width:none}

@@ -376,13 +376,16 @@ addEventListener('resize', relayoutCursors);
 addEventListener('orientationchange', ()=>setTimeout(relayoutCursors, 160));   // 等视口尺寸稳定再量
 
 /* 标签页（分段控件）的滑动高亮：与侧栏 / 底栏同款「圆角高亮滑过去」。
-   切标签会整屏重渲染，游标元素是全新的、CSS 无法自动从旧位置过渡，
-   所以用 FLIP：切换前记下高亮块旧位置，重渲染后先瞬移回旧位置，再过渡到新标签处。 */
+   切标签会整屏重渲染，游标元素是全新的、CSS 无法自动从旧位置过渡，所以用 FLIP。
+   ⚠️ 起点必须记「相对容器的偏移」，不能用视口坐标：切换标签时整块标签行的纵向位置会变
+   （两个分支标题区高度不同），若用视口坐标再减新容器位置，起点就会算到容器外，
+   看起来像「从左上角飞入」。 */
 let tabFlipFrom=null;
 function rememberTabCursor(){
   const cur=document.querySelector('.tabs .tabs-cursor'); if(!cur) return;
-  const r=cur.getBoundingClientRect();
-  if(r.width) tabFlipFrom={x:r.left, y:r.top, w:r.width, h:r.height};
+  const tb=cur.parentElement; if(!tb) return;
+  const r=cur.getBoundingClientRect(), b=tb.getBoundingClientRect();
+  if(r.width) tabFlipFrom={ x:r.left-b.left-tb.clientLeft, y:r.top-b.top-tb.clientTop, w:r.width, h:r.height };
 }
 function moveTabCursors(){
   document.querySelectorAll('.tabs').forEach(tb=>{
@@ -394,11 +397,18 @@ function moveTabCursors(){
     const y=on.getBoundingClientRect().top  - br.top  - tb.clientTop;
     if(tabFlipFrom){
       const f=tabFlipFrom; tabFlipFrom=null;
-      cur.style.transition='none';
+      cur.style.transition='none';                       // 先瞬移回旧位置（相对容器）
       cur.style.width=f.w+'px'; cur.style.height=f.h+'px';
-      cur.style.transform=`translate(${f.x-br.left-tb.clientLeft}px, ${f.y-br.top-tb.clientTop}px)`;
-      void cur.offsetWidth;                       // 强制回流：把「旧位置」落定为过渡起点
+      cur.style.transform=`translate(${f.x}px, ${y}px)`; // 纵向直接用目标位置 → 只做纯水平滑动，绝不「从上方飞入」
+      void cur.offsetWidth;                              // 强制回流：把旧位置落定为过渡起点
       cur.style.transition='';
+    }else if(!cur.style.width){                          // 首次定位：直接就位，避免从左上角飞入
+      cur.style.transition='none';
+      cur.style.width=w+'px'; cur.style.height=h+'px';
+      cur.style.transform=`translate(${x}px, ${y}px)`;
+      void cur.offsetWidth;
+      cur.style.transition='';
+      return;
     }
     cur.style.width=w+'px'; cur.style.height=h+'px';
     cur.style.transform=`translate(${x}px, ${y}px)`;
@@ -690,7 +700,7 @@ function poolTable(list, ro){
   const ck = ui.batch;
   /* 勾选列「常驻」（非批量态只留空列）：这样进入/退出批量管理时列头结构完全不变，
      其余各列的宽度与比例也就不会跳变（此前是批量态才插入该列，导致列头比例突变）。 */
-  return `<table><thead><tr><th class="cbox-col"></th>
+  return `<table class="pool-tbl"><thead><tr><th class="cbox-col"></th>
       <th>名称</th><th>IP 地址</th><th>端口</th><th>协议</th><th>服务</th>
       <th class="col-op" style="text-align:right">操作</th></tr></thead><tbody>
     ${list.map(p=>{ const on = ui.picked.has(String(p.id));
