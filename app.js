@@ -615,12 +615,12 @@ function viewDest(){
         <button class="btn primary" data-act="pool-new" ${ro?'disabled':''}>+ 添加</button>
         <button class="btn ${ui.batch?'danger':''}" data-act="pool-batch" ${ro?'disabled':''}>${ui.batch?'退出批量':'批量管理'}</button>
       </div>
+      <div class="tbl-wrap" id="poolTbl">${poolTable(list, ro)}</div>
       ${ui.batch?`<div class="batch-bar"><span>已选中 <b>${ui.picked.size}</b> 个</span>
         <button class="btn sm" data-act="pool-selall">全选</button>
         <button class="btn sm" data-act="pool-clrsel">清空</button>
         <button class="btn danger sm" data-act="pool-batch-del">删除所选</button>
-        <button class="btn sm ghost" data-act="pool-batch-cancel">取消</button></div>`:''}
-      <div class="tbl-wrap" id="poolTbl">${poolTable(list, ro)}</div>`;
+        <button class="btn sm ghost" data-act="pool-batch-cancel">取消</button></div>`:''}`;
   }else{
     body = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:15px">
       ${S.packages.map((k,i)=>{ const items=k.poolIds.map(pool).filter(Boolean);
@@ -1208,26 +1208,44 @@ function ripple(host, e){
   host.appendChild(r); setTimeout(()=>r.remove(),640);
 }
 /* 长按条目：进入「批量管理」并勾选被长按的条目（等同于先点「批量管理」按钮、再点选该条）。
-   长按后吞掉尾随的 click —— 否则进入批量态后这次点击会变成一次「点选切换」，
-   把刚勾上的条目又取消（批量态下 vpn-open 会转为 vpn-pick）。 */
-let lpTimer=null, lpStart=null, lpFired=false;
+   ⚠️ 宿主自身可能带 data-act（VPN 卡片是 data-act="vpn-open"），所以只排除「内层的
+   按钮 / 输入 / 勾选框 / 搜索框」这些真正的交互控件，绝不能按 [data-act] 一概排除
+   —— 否则卡片长按会被自己的 data-act 拦掉（这正是此前 VPN 卡片长按失效的原因）。
+   长按后吞掉尾随的 click —— 否则进入批量态后这次点击会变成一次「点选切换」把刚勾的取消。 */
+let lpTimer=null, lpStart=null, lpFired=false, lpEl=null, lpGlow=null;
+function lpReset(fired){
+  if(lpTimer){ clearTimeout(lpTimer); lpTimer=null; }
+  if(lpEl){ lpEl.classList.remove('lp-hold'); lpEl=null; }
+  if(lpGlow){
+    const g=lpGlow; lpGlow=null;
+    if(fired){ g.classList.add('fire'); setTimeout(()=>g.remove(),520); }   // 触发：光环爆开
+    else     { g.classList.add('out');  setTimeout(()=>g.remove(),200); }   // 取消：淡出
+  }
+  lpStart=null;
+}
 document.addEventListener('pointerdown', e=>{
   const el = e.target.closest('[data-batchpick]'); if(!el) return;
-  if(e.target.closest('button,a,input,select,textarea,.cbox,.sfield,[data-act]')) return;
-  lpStart={x:e.clientX,y:e.clientY};
+  if(e.target.closest('button,a,input,select,textarea,.cbox,.sfield')) return;   // 内层交互控件不算长按
+  lpStart={x:e.clientX,y:e.clientY}; lpEl=el;
+  el.classList.add('lp-hold');
+  /* 反馈光环用 fixed 定位挂在 body 上：卡片与表格行都能用，不受 <tr> 无法定位的限制 */
+  lpGlow=document.createElement('div'); lpGlow.className='lp-glow';
+  lpGlow.style.left=e.clientX+'px'; lpGlow.style.top=e.clientY+'px';
+  document.body.appendChild(lpGlow);
   lpTimer=setTimeout(()=>{
     lpTimer=null; lpFired=true; setTimeout(()=>{ lpFired=false; }, 700);   // 兜底复位
+    lpReset(true);
+    try{ navigator.vibrate && navigator.vibrate(18); }catch{}
     if(!ui.batch){ ui.batch=true; ui.picked.clear(); }
     ui.picked.add(String(el.dataset.batchpick));
     refresh();
     toast('已进入批量管理，可继续点选其它条目');
   }, 500);
 });
-const lpClear=()=>{ if(lpTimer){ clearTimeout(lpTimer); lpTimer=null; } lpStart=null; };
-document.addEventListener('pointerup', lpClear);
-document.addEventListener('pointercancel', lpClear);
+document.addEventListener('pointerup', ()=>lpReset(false));
+document.addEventListener('pointercancel', ()=>lpReset(false));
 document.addEventListener('pointermove', e=>{
-  if(lpTimer && lpStart && (Math.abs(e.clientX-lpStart.x)>8 || Math.abs(e.clientY-lpStart.y)>8)) lpClear();
+  if(lpTimer && lpStart && (Math.abs(e.clientX-lpStart.x)>8 || Math.abs(e.clientY-lpStart.y)>8)) lpReset(false);
 });
 document.addEventListener('click', e=>{
   if(lpFired){ lpFired=false; e.stopPropagation(); e.preventDefault(); return; }   // 长按已处理，吞掉尾随 click

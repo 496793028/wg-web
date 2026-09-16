@@ -622,6 +622,23 @@ body.theme-light .crop-stage{background:#e9edf3}
 body.theme-light .warn-box{color:#c0392b}
 .cfm-input{letter-spacing:3px;text-align:center;font-weight:600;font-size:15px}
 
+/* ============ 长按手势反馈（批量管理） ============
+   按下：按压点浮现「蓄力光环」，随长按缓慢放大；达到阈值：光环爆开 + 轻微震动。
+   光环用 fixed 挂在 body 上，卡片与表格行通用（<tr> 不能作为绝对定位容器）。 */
+.ucard.lp-hold, .panel.lp-hold, tr.lp-hold{transform:scale(.985);transition:transform .18s var(--ease)}
+.lp-glow{position:fixed;z-index:120;pointer-events:none;width:30px;height:30px;margin:-15px 0 0 -15px;
+  border-radius:50%;border:2px solid rgba(140,175,255,.8);
+  background:radial-gradient(circle, rgba(76,141,255,.34), rgba(76,141,255,.06) 72%);
+  box-shadow:0 0 16px rgba(76,141,255,.5), inset 0 0 12px rgba(140,175,255,.35);
+  animation:lp-grow .5s var(--ease) forwards}
+@keyframes lp-grow{from{transform:scale(.4);opacity:.25}to{transform:scale(1.15);opacity:1}}
+.lp-glow.fire{animation:lp-burst .5s var(--ease) forwards}
+@keyframes lp-burst{0%{transform:scale(1.15);opacity:1}55%{opacity:.7}100%{transform:scale(3.6);opacity:0}}
+.lp-glow.out{animation:none;transition:opacity .18s ease-out;opacity:0}
+body.theme-light .lp-glow{border-color:rgba(47,107,255,.75);
+  background:radial-gradient(circle, rgba(47,107,255,.28), rgba(47,107,255,.05) 72%);
+  box-shadow:0 0 16px rgba(47,107,255,.42), inset 0 0 12px rgba(47,107,255,.28)}
+
 /* ============ 响应式 ============ */
 @media (max-width: 760px), (orientation: portrait) and (max-width: 900px){
   .dock{display:none}
