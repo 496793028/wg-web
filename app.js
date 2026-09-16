@@ -385,6 +385,10 @@ function relayoutCursors(){
 }
 addEventListener('resize', relayoutCursors);
 addEventListener('orientationchange', ()=>setTimeout(relayoutCursors, 160));   // 等视口尺寸稳定再量
+/* 竖屏与横屏的呈现方式不同（部分页面竖屏走卡片、横屏走表格），
+   因此「是否移动端」真正翻转时才重渲染一次（普通 resize 不触发，避免频繁重绘）。 */
+matchMedia('(max-width: 760px), (orientation: portrait) and (max-width: 900px)')
+  .addEventListener('change', ()=>{ if(me) refresh(); });
 
 /* 标签页（分段控件）的滑动高亮：与侧栏 / 底栏同款「圆角高亮滑过去」。
    切标签会整屏重渲染，游标元素是全新的、CSS 无法自动从旧位置过渡，所以用 FLIP。
@@ -599,10 +603,10 @@ function routeView(){
 }
 
 /* ================= 账号管理 ================= */
-/* 账号行头像：有自定义头像则显示头像图，否则退回「姓名首字」色块（与设置页头像同源） */
-function accAvatar(a){
-  const url = a.avatar ? `/uploads/avatars/${a.avatar}` : null;
-  return `<div class="avatar" style="width:32px;height:32px;border-radius:9px;font-size:13px;background:${colorOf(a.name)}">${url?`<img src="${esc(url)}" alt="">`:esc(String(a.name||'').slice(0,1))}</div>`;
+/* 账号头像：有自定义头像则显示头像图，否则退回「姓名首字」色块（与设置页头像同源） */
+function accAvatar(a, size){
+  const px = size || 32, url = a.avatar ? `/uploads/avatars/${a.avatar}` : null;
+  return `<div class="avatar" style="width:${px}px;height:${px}px;border-radius:${Math.round(px*0.28)}px;font-size:${Math.round(px*0.4)}px;background:${colorOf(a.name)}">${url?`<img src="${esc(url)}" alt="">`:esc(String(a.name||'').slice(0,1))}</div>`;
 }
 function viewAccount(){
   const ro = !canEdit('account');
@@ -624,14 +628,43 @@ function viewAccount(){
       <button class="btn sm" data-act="acct-pw" data-id="${a.id}" ${ro?'disabled':''}>重置密码</button>
       <button class="icon-btn del" data-act="acct-del" data-id="${a.id}" ${ro||a.role==='admin'?'disabled style="opacity:.25"':''}>×</button>
     </div></td></tr>`).join('');
+  /* 竖屏用卡片、横屏用表格（同一份数据的两种呈现；朝向真正变化时由 mqMobile 触发重渲染） */
+  const table = `<div class="tbl-wrap"><table>
+      <thead><tr><th>姓名 / 登录名</th><th>角色</th>${MODULES.map(m=>`<th>${m.n}</th>`).join('')}
+      <th>状态</th><th>最后登录</th><th class="col-op" style="text-align:right">操作</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  const cards = `<div class="card-grid">${S.accounts.map((a,i)=>acctCardHTML(a,i,ro)).join('')
+      || '<div class="empty"><p>暂无账号</p></div>'}</div>`;
   return `<div class="page-hd"><div><div class="page-title">账号管理</div>
       <div class="page-desc">维护本平台登录账号，并按模块分配「无权限 / 仅查看 / 可修改」三级权限</div></div>
     <div class="hd-actions"><button class="btn primary" data-act="acct-new" ${ro?'disabled':''}>+ 新增账号</button></div></div>
     ${ro?'<div class="ro-bar">当前账号对该模块只有查看权限。</div>':''}
-    <div class="tbl-wrap"><table>
-      <thead><tr><th>姓名 / 登录名</th><th>角色</th>${MODULES.map(m=>`<th>${m.n}</th>`).join('')}
-      <th>状态</th><th>最后登录</th><th class="col-op" style="text-align:right">操作</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>`;
+    ${isMobile() ? cards : table}`;
+}
+/* 账号管理（竖屏卡片）：与 VPN 配置 / 目的地池同一套卡片语言 */
+function acctCardHTML(a, i, ro){
+  const on = (a.status===1||a.status==='on');
+  const acts = [
+    {act:'acct-edit', id:a.id, label: ro?'查看':'编辑'},
+    {act:'acct-pw', id:a.id, label:'重置密码', disabled: !!ro},
+    {act:'acct-del', id:a.id, label:'删除', danger:true, disabled: !!(ro||a.role==='admin')},
+  ];
+  const perms = MODULES.map(m=>`<span class="tag">${m.n} · ${a.role==='admin'?'可修改':(PERM_LABEL[a.perm[m.k]]||'无权限')}</span>`).join('');
+  return `<div class="ucard row-click"${rowActsAttr(acts)} style="animation-delay:${i*35}ms">
+    <div class="ucard-top">${accAvatar(a, 38)}
+      <div style="min-width:0"><div class="ucard-name">${esc(a.name)}</div>
+        <div class="ucard-ip">${esc(a.login)}</div></div>
+      <div class="ft-meta" style="margin-left:auto">
+        <span class="badge ${a.role==='admin'?'acc':''}">${esc(ROLES[a.role]||a.role)}</span>
+        <span class="badge ${on?'ok':'danger'}"><i class="dot"></i>${on?'启用':'停用'}</span></div></div>
+    <div class="ucard-body"><div class="ucard-tags">${perms}</div></div>
+    <div class="ucard-ft"><span>最后登录：${a.last_login_at?ago(a.last_login_at):(a.lastLogin?ago(a.lastLogin):'—')}</span>
+      <div class="row-acts">
+        <button class="btn sm" data-act="acct-edit" data-id="${a.id}">${ro?'查看':'编辑'}</button>
+        <button class="btn sm" data-act="acct-pw" data-id="${a.id}" ${ro?'disabled':''}>重置密码</button>
+        <button class="btn sm danger" data-act="acct-del" data-id="${a.id}" ${ro||a.role==='admin'?'disabled':''}>删除</button>
+      </div></div>
+  </div>`;
 }
 function acctForm(id){
   const a = id ? acct(id) : { name:'', login:'', role:'custom', status:1,
@@ -664,11 +697,11 @@ function viewDest(){
     const q = ui.q.pool.trim().toLowerCase();
     const list = S.pools.filter(p=>!q || (p.name+p.ip+p.port+p.proto).toLowerCase().includes(q));
     body = `<div class="dest-toolbar">
-        ${sfield('sf_pool', ui.q.pool, v=>{ ui.q.pool=v; renderPoolTable(); },'搜索名称 / IP / 端口')}
+        ${sfield('sf_pool', ui.q.pool, v=>{ ui.q.pool=v; renderPoolCards(); },'搜索名称 / IP / 端口')}
         <button class="btn primary" data-act="pool-new" ${ro?'disabled':''}>+ 添加</button>
         <button class="btn ${ui.batch?'danger':''}" data-act="pool-batch" ${ro?'disabled':''}>${ui.batch?'退出批量':'批量管理'}</button>
       </div>
-      <div class="tbl-wrap" id="poolTbl">${poolTable(list, ro)}</div>
+      <div class="card-grid ${ui.batch?'batch-on':''}" id="poolGrid">${poolCards(list, ro)}</div>
       ${ui.batch?`<div class="batch-bar"><span>已选中 <b>${ui.picked.size}</b> 个</span>
         <button class="btn sm" data-act="pool-selall">全选</button>
         <button class="btn sm" data-act="pool-clrsel">清空</button>
@@ -702,36 +735,41 @@ function viewDest(){
       <div class="tab ${ui.destTab==='pkg'?'on':''}" data-act="dtab" data-v="pkg">目的地包</div></div>
     <div class="tab-pane">${body}</div>`;
 }
-function poolTable(list, ro){
-  const ck = ui.batch;
-  /* 勾选列「常驻」（非批量态只留空列）：这样进入/退出批量管理时列头结构完全不变，
-     其余各列的宽度与比例也就不会跳变（此前是批量态才插入该列，导致列头比例突变）。 */
-  return `<table class="pool-tbl"><thead><tr><th class="cbox-col"></th>
-      <th>名称</th><th>IP 地址</th><th>端口</th><th>协议</th><th>服务</th>
-      <th class="col-op" style="text-align:right">操作</th></tr></thead><tbody>
-    ${list.map(p=>{ const on = ui.picked.has(String(p.id));
-      const acts = ck ? null : [
-        {act:'pool-edit', id:p.id, label: ro?'查看':'编辑'},
-        {act:'pool-del', id:p.id, label:'删除', danger:true, disabled: !!ro},
-      ];
-      /* 批量态：整行点击即勾选 / 取消勾选（不必非得点勾选框）；非批量态：整行点击弹出操作选单 */
-      const rowAttrs = ck ? ` class="row-click" data-act="pool-pick" data-id="${p.id}"`
-                          : (acts ? ` class="row-click"${rowActsAttr(acts)}` : '');
-      return `<tr data-batchpick="${p.id}"${rowAttrs}><td class="cbox-col">${ck?`<div class="cbox ${on?'on':''}" data-act="pool-pick" data-id="${p.id}">${on?ICON.check:''}</div>`:''}</td>
-      <td><b>${esc(p.name)}</b><div class="sub">${esc(p.descr||'—')}</div></td>
-      <td class="mono">${esc(p.ip)}</td><td class="mono">${esc(portText(p.port))}</td>
-      <td><span class="badge">${esc(p.proto)}</span></td><td class="sub">${esc(svcOf(p.port))}</td>
-      <td class="col-op"><div class="row-acts">
+/* IP-端口池：卡片式（与 VPN 配置页同一套卡片语言） */
+function poolCardHTML(p, i, ro){
+  const on = ui.picked.has(String(p.id)), ck = ui.batch;
+  const acts = [
+    {act:'pool-edit', id:p.id, label: ro?'查看':'编辑'},
+    {act:'pool-del', id:p.id, label:'删除', danger:true, disabled: !!ro},
+  ];
+  /* 批量态：点整卡 = 勾选 / 取消；非批量态：点整卡弹操作选单（竖屏），右下按钮操作（横屏） */
+  const tap = ck ? ` data-act="pool-pick" data-id="${p.id}"` : rowActsAttr(acts);
+  return `<div class="ucard pool-card${on?' pick':''}${ck?'':' row-click'}" data-batchpick="${p.id}"${tap}
+      style="animation-delay:${i*35}ms">
+    <div class="cbox ucard-pick ${on?'on':''}" data-act="pool-pick" data-id="${p.id}">${on?ICON.check:''}</div>
+    <div class="ucard-top"><div class="avatar" style="background:${colorOf(p.name)}">${esc(String(p.name||'').slice(0,1))}</div>
+      <div style="min-width:0"><div class="ucard-name">${esc(p.name)}</div>
+        <div class="ucard-ip">${esc(p.ip)}:${esc(portText(p.port))}</div></div></div>
+    <div class="ucard-body"><div class="ucard-tags">
+      <span class="tag pool">${esc(p.proto)}</span>
+      <span class="tag">${esc(svcOf(p.port))}</span>
+      <span class="tag">${esc(portText(p.port))}</span></div></div>
+    <div class="ucard-ft"><span>${esc(p.descr||'无说明')}</span>
+      <div class="row-acts">
         <button class="btn sm" data-act="pool-edit" data-id="${p.id}">${ro?'查看':'编辑'}</button>
-        <button class="btn sm danger" data-act="pool-del" data-id="${p.id}" ${ro?'disabled style="opacity:.25"':''}>删除</button>
-      </div></td></tr>`;}).join('')
-      || `<tr><td colspan="7"><div class="empty"><p>没有匹配的条目</p></div></td></tr>`}
-    </tbody></table>`;
+        <button class="btn sm danger" data-act="pool-del" data-id="${p.id}" ${ro?'disabled':''}>删除</button>
+      </div></div>
+  </div>`;
 }
-function renderPoolTable(){
+function poolCards(list, ro){
+  return list.length
+    ? list.map((p,i)=>poolCardHTML(p,i,ro)).join('')
+    : '<div class="empty"><p>没有匹配的条目</p></div>';
+}
+function renderPoolCards(){
   const q = ui.q.pool.trim().toLowerCase();
   const list = S.pools.filter(p=>!q || (p.name+p.ip+p.port+p.proto).toLowerCase().includes(q));
-  const w = $('#poolTbl'); if(w) w.innerHTML = poolTable(list, !canEdit('dest'));
+  const w = $('#poolGrid'); if(w) w.innerHTML = poolCards(list, !canEdit('dest'));
 }
 function poolForm(id){
   const p = id ? pool(id) : { name:'', ip:'', port:'', proto:'TCP', descr:'' };
@@ -910,17 +948,29 @@ function statHTML(){
     <div class="stat"><div class="stat-label">当前结果</div><div class="stat-val">${S.logs.length}</div>
       <div class="stat-sub">最多展示 200 条</div></div>`;
 }
+/* 管理员操作审计（竖屏卡片）：与其它页面同一套卡片语言 */
+function auditCards(){
+  return S.audits.length ? S.audits.map((a,i)=>`<div class="ucard" style="animation-delay:${i*20}ms">
+    <div class="ucard-top"><div style="min-width:0">
+        <div class="ucard-name">${esc(a.actor)}</div>
+        <div class="ucard-ip">${fmt(a.ts)}</div></div>
+      <span class="badge acc" style="margin-left:auto;flex:none">${esc(a.action)}</span></div>
+    <div class="ucard-ft"><span>对象：${esc(a.target||'—')}</span>
+      <span class="sub mono">${esc(a.ip||'—')}</span></div>
+  </div>`).join('') : '<div class="empty"><p>暂无审计记录</p></div>';
+}
 function viewAudit(){
   if(ui.auditTab==='audit'){
     const rows = S.audits.map(a=>`<tr><td class="audit-line">${fmt(a.ts)}</td><td>${esc(a.actor)}</td>
       <td><span class="badge acc">${esc(a.action)}</span></td><td>${esc(a.target)}</td>
       <td class="sub mono">${esc(a.ip||'—')}</td></tr>`).join('');
+    const table = `<div class="tbl-wrap"><table><thead><tr><th>时间</th><th>操作人</th><th>操作类型</th><th>对象</th><th>来源 IP</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5"><div class="empty"><p>暂无审计记录</p></div></td></tr>'}</tbody></table></div>`;
     return `<div class="page-hd"><div><div class="page-title">访问追踪</div>
       <div class="page-desc">管理员在本平台的操作留痕，满足安全审计的可追溯要求</div></div></div>
       <div class="tabs"><div class="tabs-cursor"></div><div class="tab" data-act="atab" data-v="access">用户访问记录</div>
         <div class="tab on" data-act="atab" data-v="audit">管理员操作审计</div></div>
-      <div class="tab-pane"><div class="tbl-wrap"><table><thead><tr><th>时间</th><th>操作人</th><th>操作类型</th><th>对象</th><th>来源 IP</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="5"><div class="empty"><p>暂无审计记录</p></div></td></tr>'}</tbody></table></div></div>`;
+      <div class="tab-pane">${isMobile() ? `<div class="card-grid">${auditCards()}</div>` : table}</div>`;
   }
   return `<div class="page-hd"><div><div class="page-title">访问追踪</div>
       <div class="page-desc">每一条新建连接：谁、在什么时候、访问了哪个 IP 的哪个端口、是否被放行</div></div>
