@@ -407,6 +407,11 @@ function layerHasUnsavedInput(){
 function rowMore(acts){
   return `<button class="btn sm row-more" data-act="row-more" data-acts='${JSON.stringify(acts)}' title="更多操作" aria-label="更多操作">${ICON.more}</button>`;
 }
+/* 条目（表格行 / 卡片）：把「删除 / 修改」等右侧按钮收敛为「点击整条即弹选单」。
+   - rowActsAttr(acts) 挂到 <tr>/卡片上；点击该条目任意非交互区域即弹出同一份选单；
+   - rowHint() 仅作「此处可点击」的视觉提示（⋯），不再是按钮（横竖屏一致）。 */
+function rowActsAttr(acts){ return ` data-rowacts='${JSON.stringify(acts)}'`; }
+function rowHint(){ return `<span class="row-hint" aria-hidden="true">${ICON.more}</span>`; }
 function openActionMenu(anchor, acts){
   document.getElementById('popMenu')?.remove();
   const r = anchor.getBoundingClientRect();
@@ -496,20 +501,22 @@ function viewSettings(){
       <div class="page-desc">查看并管理你的个人资料与偏好</div></div></div>
     <div class="settings-grid">
       <div class="panel profile-hero">
-        <div class="profile-top">
-          <button class="profile-avatar" data-act="avatar-edit" type="button" title="修改头像">
-            <span class="pa-thumb">${av?`<img src="${esc(av)}" alt="">`:ICON.person}</span>
-            <span class="pa-edit">${ICON.upload}</span>
-          </button>
-          <div class="profile-meta">
-            <div class="profile-name">${esc(me.name)}</div>
-            <div class="profile-role">${esc(ROLES[me.role]||me.role)}</div>
-            <div class="profile-login sub mono">${esc(me.login)}</div>
+        <div class="profile-hero-inner">
+          <div class="profile-top">
+            <button class="profile-avatar" data-act="avatar-edit" type="button" title="修改头像">
+              <span class="pa-thumb">${av?`<img src="${esc(av)}" alt="">`:ICON.person}</span>
+              <span class="pa-edit">${ICON.upload}</span>
+            </button>
+            <div class="profile-meta">
+              <div class="profile-name">${esc(me.name)}</div>
+              <div class="profile-role">${esc(ROLES[me.role]||me.role)}</div>
+              <div class="profile-login sub mono">${esc(me.login)}</div>
+            </div>
           </div>
+          <div class="pf-row pf-theme"><span class="pf-label">${ICON.sun}<span>黑白风格</span></span>
+            <button class="am-switch ${THEME==='light'?'on':''}" data-act="theme-toggle" role="switch" aria-checked="${THEME==='light'}"><span class="am-knob"></span></button></div>
         </div>
         <div class="profile-actions">
-          <div class="pf-row"><span class="pf-label">${ICON.sun}<span>黑白风格</span></span>
-            <button class="am-switch ${THEME==='light'?'on':''}" data-act="theme-toggle" role="switch" aria-checked="${THEME==='light'}"><span class="am-knob"></span></button></div>
           <button class="btn block" data-act="self-pw">${ICON.person}<span>修改密码</span></button>
           <button class="btn block danger" data-act="logout">${ICON.logout}<span>退出登录</span></button>
         </div>
@@ -527,26 +534,27 @@ function routeView(){
 }
 
 /* ================= 账号管理 ================= */
+/* 账号行头像：有自定义头像则显示头像图，否则退回「姓名首字」色块（与设置页头像同源） */
+function accAvatar(a){
+  const url = a.avatar ? `/uploads/avatars/${a.avatar}` : null;
+  return `<div class="avatar" style="width:32px;height:32px;border-radius:9px;font-size:13px;background:${colorOf(a.name)}">${url?`<img src="${esc(url)}" alt="">`:esc(String(a.name||'').slice(0,1))}</div>`;
+}
 function viewAccount(){
   const ro = !canEdit('account');
-  const rows = S.accounts.map(a=>`<tr>
+  const rows = S.accounts.map(a=>`<tr class="row-click"${rowActsAttr([
+      {act:'acct-edit', id:a.id, label: ro?'查看':'编辑'},
+      {act:'acct-pw', id:a.id, label:'重置密码', disabled: !!ro},
+      {act:'acct-del', id:a.id, label:'删除', danger:true, disabled: !!(ro||a.role==='admin')},
+    ])}>
     <td><div style="display:flex;align-items:center;gap:10px">
-      <div class="avatar" style="width:32px;height:32px;border-radius:9px;font-size:13px;background:${colorOf(a.name)}">${esc(a.name.slice(0,1))}</div>
+      ${accAvatar(a)}
       <div><div>${esc(a.name)}</div><div class="sub mono">${esc(a.login)}</div></div></div></td>
     <td><span class="badge ${a.role==='admin'?'acc':''}">${esc(ROLES[a.role]||a.role)}</span></td>
     ${MODULES.map(m=>`<td>${a.role==='admin' ? '<span class="badge ok">可修改</span>'
       : `<span class="badge ${a.perm[m.k]==='rw'?'ok':a.perm[m.k]==='r'?'warn':''}">${PERM_LABEL[a.perm[m.k]]||'无权限'}</span>`}</td>`).join('')}
     <td><span class="badge ${(a.status===1||a.status==='on')?'ok':'danger'}"><i class="dot"></i>${(a.status===1||a.status==='on')?'启用':'停用'}</span></td>
     <td class="sub">${a.last_login_at?ago(a.last_login_at):(a.lastLogin?ago(a.lastLogin):'—')}</td>
-    <td><div class="row-acts">
-      <button class="btn sm" data-act="acct-edit" data-id="${a.id}">${ro?'查看':'编辑'}</button>
-      <button class="btn sm" data-act="acct-pw" data-id="${a.id}" ${ro?'disabled':''}>重置密码</button>
-      <button class="icon-btn del" data-act="acct-del" data-id="${a.id}" ${ro||a.role==='admin'?'disabled style="opacity:.25"':''}>×</button>
-    </div>${rowMore([
-      {act:'acct-edit', id:a.id, label: ro?'查看':'编辑'},
-      {act:'acct-pw', id:a.id, label:'重置密码', disabled: !!ro},
-      {act:'acct-del', id:a.id, label:'删除', danger:true, disabled: !!(ro||a.role==='admin')},
-    ])}</td></tr>`).join('');
+    <td class="row-op">${rowHint()}</td></tr>`).join('');
   return `<div class="page-hd"><div><div class="page-title">账号管理</div>
       <div class="page-desc">维护本平台登录账号，并按模块分配「无权限 / 仅查看 / 可修改」三级权限</div></div>
     <div class="hd-actions"><button class="btn primary" data-act="acct-new" ${ro?'disabled':''}>+ 新增账号</button></div></div>
@@ -600,22 +608,18 @@ function viewDest(){
   }else{
     body = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:15px">
       ${S.packages.map((k,i)=>{ const items=k.poolIds.map(pool).filter(Boolean);
-        return `<div class="panel" style="animation-delay:${i*45}ms">
+        return `<div class="panel row-click" style="animation-delay:${i*45}ms"${rowActsAttr([
+            {act:'pkg-edit', id:k.id, label: ro?'查看内容':'管理内容'},
+            {act:'pkg-del', id:k.id, label:'删除', danger:true, disabled: !!ro},
+          ])}>
           <div class="panel-hd"><div><div class="panel-title">${esc(k.name)}</div>
             <div class="sub" style="font-size:11.5px;color:var(--dim)">${esc(k.descr||'无说明')}</div></div>
-            <span class="badge acc">${items.length} 项</span></div>
-          <div class="ucard-tags" style="min-height:40px;margin-bottom:14px">
+            <div class="ph-right"><span class="badge acc">${items.length} 项</span>${rowHint()}</div></div>
+          <div class="ucard-tags" style="min-height:40px;margin-bottom:2px">
             ${items.length ? items.slice(0,4).map(p=>`<span class="tag pool">${esc(p.name)}
               <span style="opacity:.6">${esc(p.ip)}:${esc(portText(p.port))}</span></span>`).join('')
               + (items.length>4?`<span class="tag more">+${items.length-4}</span>`:'')
               : '<span class="empty-mini">尚未添加 IP-端口</span>'}</div>
-          <div style="display:flex;gap:8px" class="row-acts">
-            <button class="btn sm" data-act="pkg-edit" data-id="${k.id}">${ro?'查看内容':'管理内容'}</button>
-            <button class="btn sm danger" data-act="pkg-del" data-id="${k.id}" ${ro?'disabled':''}>删除</button></div>
-          ${rowMore([
-            {act:'pkg-edit', id:k.id, label: ro?'查看内容':'管理内容'},
-            {act:'pkg-del', id:k.id, label:'删除', danger:true, disabled: !!ro},
-          ])}
         </div>`;}).join('') || '<div class="empty"><p>暂无目的地包</p></div>'}</div>`;
   }
   return `<div class="page-hd"><div><div class="page-title">目的地池</div>
@@ -631,17 +635,15 @@ function poolTable(list, ro){
       <th>名称</th><th>IP 地址</th><th>端口</th><th>协议</th><th>服务</th>
       <th style="text-align:right">操作</th></tr></thead><tbody>
     ${list.map(p=>{ const on = ui.picked.has(String(p.id));
-      return `<tr>${ck?`<td class="cbox-col"><div class="cbox ${on?'on':''}" data-act="pool-pick" data-id="${p.id}">${on?ICON.check:''}</div></td>`:''}
+      const acts = ck ? null : [
+        {act:'pool-edit', id:p.id, label: ro?'查看':'编辑'},
+        {act:'pool-del', id:p.id, label:'删除', danger:true, disabled: !!ro},
+      ];
+      return `<tr${acts?` class="row-click"${rowActsAttr(acts)}`:''}>${ck?`<td class="cbox-col"><div class="cbox ${on?'on':''}" data-act="pool-pick" data-id="${p.id}">${on?ICON.check:''}</div></td>`:''}
       <td><b>${esc(p.name)}</b><div class="sub">${esc(p.descr||'—')}</div></td>
       <td class="mono">${esc(p.ip)}</td><td class="mono">${esc(portText(p.port))}</td>
       <td><span class="badge">${esc(p.proto)}</span></td><td class="sub">${esc(svcOf(p.port))}</td>
-      <td><div class="row-acts">
-        <button class="btn sm" data-act="pool-edit" data-id="${p.id}">${ro?'查看':'编辑'}</button>
-        <button class="btn sm danger" data-act="pool-del" data-id="${p.id}" ${ro?'disabled style="opacity:.25"':''}>删除</button>
-      </div>${rowMore([
-        {act:'pool-edit', id:p.id, label: ro?'查看':'编辑'},
-        {act:'pool-del', id:p.id, label:'删除', danger:true, disabled: !!ro},
-      ])}</td></tr>`;}).join('')
+      <td class="row-op">${acts?rowHint():''}</td></tr>`;}).join('')
       || `<tr><td colspan="${ck?7:6}"><div class="empty"><p>没有匹配的条目</p></div></td></tr>`}
     </tbody></table>`;
 }
@@ -1188,6 +1190,12 @@ document.addEventListener('click', e=>{
     return closeLayer();
   }
   if(!e.target.closest('.combo')) closeCombos();
+  /* 点击条目（表格行 / 卡片）的空白处，即在原位弹出操作选单（横竖屏一致） */
+  const rh = e.target.closest('[data-rowacts]');
+  if(rh && !e.target.closest('button,a,input,select,textarea,.cbox,.sfield,[data-act]')){
+    try{ openActionMenu(rh, JSON.parse(rh.dataset.rowacts||'[]')); }catch{}
+    return;
+  }
   const t=e.target.closest('[data-act]'); if(!t) return;
   const fn=ACT[t.dataset.act];
   if(fn){

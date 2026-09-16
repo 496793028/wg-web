@@ -63,3 +63,6 @@ _uicheck_*
 # ---- 真机验证记录（含真实内网 IP，严禁入库；README 仅作本地引用）----
 #   sanitize 脱敏后可移除本行再 git add verify/ 入库
 verify/
+
+# ---- 本地备份快照（仅供回滚参考，不入库；需要时从 tag 恢复）----
+backup/

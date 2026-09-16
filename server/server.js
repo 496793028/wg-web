@@ -234,7 +234,7 @@ app.get('/api/state', attach, auth, async (req, res) => {
     avatar: req.user.avatar ? `/uploads/avatars/${req.user.avatar}` : null,
     perm: permOf(req.user), mustChangePwd: !!req.user.must_change_pwd } };
   if (canView(req.user, 'account'))
-    out.accounts = await q(`SELECT id, login, name, role, perm_account, perm_dest, perm_vpn, perm_audit,
+    out.accounts = await q(`SELECT id, login, name, role, avatar, perm_account, perm_dest, perm_vpn, perm_audit,
       status, last_login_at, last_login_ip, created_at FROM sys_account ORDER BY id`);
   if (canView(req.user, 'dest')) {
     out.pools = await q(`SELECT id, name, ip, port, proto, descr FROM dest_pool ORDER BY id`);

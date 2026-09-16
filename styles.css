@@ -224,7 +224,7 @@ body.theme-light .dock{box-shadow:2px 0 24px -10px rgba(30,45,90,.18)}
 .dock-avatar:hover{transform:scale(1.06)}
 .dock-avatar:active{transform:scale(.96)}
 .dock-avatar svg{width:26px;height:26px;color:#fff}
-.dock-avatar img{width:100%;height:100%;object-fit:cover}
+.dock-avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .dock-user{display:none;flex-direction:column;min-width:0}
 body.dock-open .dock-user{display:flex}
 .du-name{font-size:13px;font-weight:600;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -364,6 +364,14 @@ tbody tr{transition:background .15s}
 tbody tr:hover{background:var(--panel2)}
 tbody tr:last-child td{border-bottom:none}
 .row-acts{display:flex;gap:6px;justify-content:flex-end;align-items:center}
+/* 条目点击弹选单：整行/整卡可点，右侧仅留一个「⋯」提示（不再是按钮） */
+.row-click{cursor:pointer}
+.row-op{text-align:right;white-space:nowrap;width:56px}
+.row-hint{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;
+  color:var(--faint);background:var(--panel2);border:1px solid var(--line);transition:color .2s,background .2s}
+.row-hint svg{width:15px;height:15px}
+.row-click:hover .row-hint{color:var(--txt);background:var(--line)}
+.ph-right{display:inline-flex;align-items:center;gap:8px;flex:none}
 .audit-line{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--dim)}
 
 /* ============ Tabs ============ */
@@ -439,7 +447,8 @@ body.theme-light .combo-opt.sel{background:rgba(47,107,255,.12);color:#2f6bff}
 .ucard-ft{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--dim)}
 .ucard-pick{position:absolute;top:12px;right:12px}
 .card-grid:not(.batch-on) .ucard-pick{display:none}
-.avatar{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:600;font-size:15px;flex:none}
+.avatar{position:relative;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:600;font-size:15px;flex:none;overflow:hidden}
+.avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .batch-bar{display:flex;align-items:center;gap:9px;margin-top:16px;padding:10px 14px;background:var(--bg2);
   border:1px solid var(--line);border-radius:12px}
 
@@ -497,10 +506,10 @@ body.theme-light .drawer-wrap,body.theme-light .modal-wrap{background:rgba(20,30
 .mtop{display:none;position:fixed;top:0;left:0;right:0;z-index:30;align-items:center;gap:10px;
   padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--line);
   -webkit-backdrop-filter:var(--dock-blur);backdrop-filter:var(--dock-blur)}
-.mtop-avatar{width:38px;height:38px;border-radius:50%;border:none;flex:none;overflow:hidden;
+.mtop-avatar{position:relative;width:38px;height:38px;border-radius:50%;border:none;flex:none;overflow:hidden;
   background:var(--avatar-bg);display:grid;place-items:center;box-shadow:0 3px 10px -3px rgba(59,130,246,.6)}
 .mtop-avatar svg{width:20px;height:20px;color:#fff}
-.mtop-avatar img{width:100%;height:100%;object-fit:cover}
+.mtop-avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .mtop-title{font-size:15px;font-weight:600;color:var(--txt)}
 /* 竖屏底栏：与横屏侧栏（Dock）保持一致的质感与动效 —— 磨砂玻璃、悬停浮起、按下回弹、选中填充 */
 .mbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:30;align-items:center;
@@ -535,11 +544,11 @@ body.theme-light .drawer-wrap,body.theme-light .modal-wrap{background:rgba(20,30
   display:grid;place-items:center;cursor:pointer;transition:transform .15s;padding:0}
 .profile-avatar:hover{transform:scale(1.03)}
 .profile-avatar:active{transform:scale(.97)}
-.profile-avatar .pa-thumb{width:84px;height:84px;border-radius:50%;border:1px solid var(--line2);
+.profile-avatar .pa-thumb{position:relative;width:84px;height:84px;border-radius:50%;border:1px solid var(--line2);
   background:var(--avatar-bg);overflow:hidden;display:grid;place-items:center;
   box-shadow:0 6px 18px -6px rgba(59,130,246,.6);transition:transform .15s}
 .profile-avatar:active .pa-thumb{transform:scale(.97)}
-.profile-avatar .pa-thumb img{width:100%;height:100%;object-fit:cover}
+.profile-avatar .pa-thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .profile-avatar .pa-thumb svg{width:40px;height:40px;color:#fff}
 /* 上传角标：移出圆形裁剪区，置于右下角外缘，解决被裁切的问题 */
 .profile-avatar .pa-edit{position:absolute;right:-1px;bottom:-1px;width:26px;height:26px;border-radius:50%;
@@ -625,11 +634,20 @@ body.theme-light .warn-box{color:#c0392b}
   .page-hd{flex-direction:column;align-items:flex-start;gap:10px}
   .hd-actions{width:100%}
   .card-grid{grid-template-columns:1fr}
-  .settings-grid{grid-template-columns:1fr}
-  .dest-toolbar{flex-direction:column;align-items:stretch}
-  .profile-actions{flex-direction:row;flex-wrap:wrap}
-  .profile-actions .pf-row{flex:1 0 100%}
-  .profile-actions .btn.block{flex:1 1 auto;width:auto;padding:11px 10px}
+  /* 设置页（竖屏）：头像卡与权限卡并排等高；改密/退出移出资料卡，在下方并列 */
+  .settings-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:stretch}
+  .profile-hero{display:contents}
+  .profile-hero-inner{grid-column:1;grid-row:1;min-width:0;background:var(--panel);border:1px solid var(--line);
+    border-radius:16px;padding:16px}
+  .profile-perms-card{grid-column:2;grid-row:1;min-width:0}
+  .profile-perms-card .profile-perms{padding:12px 10px}
+  .profile-perms-card .perm-row{flex-wrap:wrap;gap:4px}
+  .profile-actions{grid-column:1 / -1;grid-row:2;flex-direction:row;flex-wrap:nowrap;margin-top:0}
+  .profile-actions .btn.block{flex:1 1 0;width:auto;padding:11px 10px}
+  /* 目的地池工具栏（竖屏）：搜索占满一行，添加/批量删除并排，不再各占整宽 */
+  .dest-toolbar{flex-wrap:wrap;align-items:center}
+  .dest-toolbar .sfield{flex:1 1 100%;max-width:none}
+  .dest-toolbar .btn{flex:1 1 0}
 }
 @media(prefers-reduced-motion:reduce){
   *{animation-duration:.01ms!important;transition-duration:.01ms!important}
