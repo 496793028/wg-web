@@ -576,9 +576,6 @@ body.theme-light .mbar-cursor{background:linear-gradient(135deg,rgba(47,107,255,
 .pf-label{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;color:var(--txt)}
 .pf-label svg{width:17px;height:17px;opacity:.85}
 
-/* ============ 行内「更多」下拉（移动端） ============ */
-.row-more{display:none;width:34px;height:34px;padding:0;border-radius:9px;color:var(--dim)}
-.row-more svg{width:18px;height:18px}
 .pop-menu .am-item{width:100%}
 
 /* ============ 头像裁切预览 ============ */
@@ -599,6 +596,9 @@ body.theme-light .crop-stage{background:#e9edf3}
   box-shadow:0 0 0 1px var(--gold-line) inset, 0 0 22px var(--gold-glow), var(--elev)}
 .ucard.black:hover{border-color:var(--gold-line);
   box-shadow:0 0 0 1px var(--gold-line) inset, 0 0 30px var(--gold-glow), 0 16px 34px -20px rgba(0,0,0,.8)}
+/* 批量选择态优先于黑名单鎏金样式：金色卡片被选中时同样去掉金色，与普通卡片选中样式完全一致 */
+.ucard.black.pick, .ucard.black.pick:hover{border-color:var(--accent);
+  box-shadow:0 0 0 1px var(--accent) inset}
 .mode-badge{flex:none;display:inline-flex;align-items:center;font-size:10.5px;font-weight:600;padding:2px 9px;border-radius:999px;
   background:var(--gold-soft);border:1px solid var(--gold-line);color:var(--gold);letter-spacing:.3px}
 /* 黑名单徽标叠在「正常」徽标正上方（卡片右下角竖向排列） */
@@ -648,9 +648,6 @@ body.theme-light .lp-glow{border-color:rgba(47,107,255,.75);
   .main{margin-left:0;width:100%;transform:none;padding:72px 14px 88px}
   .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .row-acts{display:none}
-  .row-more{display:inline-flex}
-  .ucard{position:relative}
-  .ucard-ft .row-more{position:absolute;top:10px;right:10px;z-index:2}
   .drawer{width:100%;max-width:100%}
   .modal{max-height:100vh;max-width:100vw;width:100%}
   .crop-modal{max-width:100vw}

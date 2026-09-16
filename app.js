@@ -363,6 +363,16 @@ function moveMbarCursor(){
   cur.style.height = er.height + 'px';
   cur.style.transform = `translate(${er.left - br.left - bar.clientLeft}px, ${er.top - br.top - bar.clientTop}px)`;
 }
+/* 横竖屏切换 / 窗口尺寸变化后必须重新量一次两个滑动高亮：
+   竖屏时侧栏 display:none、横屏时底栏 display:none，隐藏元素的 offset/rect 全是 0，
+   不重算就会出现「横屏翻页后切竖屏 → 底栏高亮错位/消失」「竖屏翻页后切横屏 → 侧栏高亮错位」。 */
+let cursorRaf=0;
+function relayoutCursors(){
+  cancelAnimationFrame(cursorRaf);
+  cursorRaf=requestAnimationFrame(()=>{ moveCursorTo(); moveMbarCursor(); });
+}
+addEventListener('resize', relayoutCursors);
+addEventListener('orientationchange', ()=>setTimeout(relayoutCursors, 160));   // 等视口尺寸稳定再量
 
 /* 头像下拉菜单 */
 function toggleAvatarMenu(src){
@@ -413,10 +423,6 @@ function layerHasUnsavedInput(){
     return (el.value||'').trim() !== '';
   });
 }
-/* 移动端：行内「删除 / 修改」等折叠为「更多」下拉选单 */
-function rowMore(acts){
-  return `<button class="btn sm row-more" data-act="row-more" data-acts='${JSON.stringify(acts)}' title="更多操作" aria-label="更多操作">${ICON.more}</button>`;
-}
 /* 条目（表格行 / 卡片）：竖屏下点击整条即在点击位置弹出操作选单；横屏保留操作列按钮。 */
 function rowActsAttr(acts){ return ` data-rowacts='${JSON.stringify(acts)}'`; }
 function openActionMenu(anchor, acts, pt){
@@ -441,7 +447,7 @@ function openActionMenu(anchor, acts, pt){
   document.addEventListener('click', popOutside, true);
 }
 function popOutside(e){
-  if(!e.target.closest('.pop-menu') && !e.target.closest('[data-act="row-more"]')){
+  if(!e.target.closest('.pop-menu')){
     document.getElementById('popMenu')?.remove();
     document.removeEventListener('click', popOutside, true);
   }
@@ -720,10 +726,6 @@ function ucardHTML(v, i){
         + (tags.length>3?`<span class="tag more">+${tags.length-3}</span>`:'')
         : '<span class="empty-mini">尚未授权任何目的地</span>'}</div></div>
     <div class="ucard-ft"><span>${black?`${n} 个禁止例外`:`${n} 个可访问目的地`}</span>
-      ${rowMore([
-        {act:'vpn-conf', id:v.id, label:'客户端配置'},
-        {act:'vpn-del', id:v.id, label:'删除用户', danger:true},
-      ])}
       <div class="ft-meta">
         ${black?`<span class="mode-badge">黑名单</span>`:''}
         <span class="badge ${(v.status===1||v.status==='on')?'ok':''}">${(v.status===1||v.status==='on')?'正常':'停用'}</span>
@@ -980,7 +982,7 @@ const ACT = {
   nav: el=>{ const k=el.dataset.k, sel=el.dataset.sel||el.dataset.k;
     document.getElementById('avatarMenu')?.remove();
     if(ui.sel===sel && ui.route===k) return;
-    ui.route=k; ui.sel=sel; ui.batch=false; ui.picked.clear(); saveUi();
+    ui.route=k; ui.sel=sel; ui.batch=false; ui.picked.clear(); lpSig=null; saveUi();
     [...document.querySelectorAll('.dock-item, .mbar-item')].forEach(i=>i.classList.toggle('sel', i.dataset.sel===sel));
     moveCursorTo(); moveMbarCursor();
     const name=currentPathName();
@@ -1089,8 +1091,6 @@ const ACT = {
     confirmBox('删除账号',`确定删除 <b>${esc(a.name)}</b>（${esc(a.login)}）吗？该操作不可撤销。`, async ()=>{
       await api('DELETE','accounts/'+a.id); await loadState();
       refresh(); toast('已删除'); }); },
-  'row-more': el=>{ try{ openActionMenu(el, JSON.parse(el.dataset.acts||'[]')); }catch{} },
-
   /* 目的地 */
   'pool-new': ()=> modal({title:'新增 IP-端口', body:poolForm(null), onOk: async ()=>{
       const g=readForm(); if(!g.name||!g.ip){ toast('名称与 IP 必填（端口留空=所有端口）','err'); return false; }
@@ -1106,7 +1106,7 @@ const ACT = {
     confirmBox('删除 IP-端口',`确定删除 <b>${esc(p.name)}</b>（${esc(p.ip)}:${esc(portText(p.port))}）吗？引用它的包会同步移除。`, async ()=>{
       await api('DELETE','pools/'+p.id); await loadState();
       refresh(); toast('已删除'); }); },
-  'pool-batch': ()=>{ if(!canEdit('dest')) return; ui.batch=!ui.batch; ui.picked.clear(); refresh(); },
+  'pool-batch': ()=>{ if(!canEdit('dest')) return; lpSig=null; ui.batch=!ui.batch; ui.picked.clear(); refresh(); },
   'pool-pick': el=>{ const id=String(el.dataset.id); ui.picked.has(id)?ui.picked.delete(id):ui.picked.add(id); refresh(); },
   'pool-selall': ()=>{ const q=ui.q.pool.trim().toLowerCase();
     S.pools.filter(p=>!q||(p.name+p.ip+p.port+p.proto).toLowerCase().includes(q)).forEach(p=>ui.picked.add(String(p.id))); refresh(); },
@@ -1150,7 +1150,7 @@ const ACT = {
   'vpn-open': el=>{ if(ui.batch) return ACT['vpn-pick'](el); openGrant(el.dataset.id); },
   'vpn-conf': el=> showVpnConf(el.dataset.id),
   'vpn-pick': el=>{ const id=String(el.dataset.id); ui.picked.has(id)?ui.picked.delete(id):ui.picked.add(id); refresh(); },
-  'vpn-batch': ()=>{ ui.batch=!ui.batch; ui.picked.clear(); refresh(); },
+  'vpn-batch': ()=>{ lpSig=null; ui.batch=!ui.batch; ui.picked.clear(); refresh(); },
   'vpn-batch-cancel': ()=>{ ui.batch=false; ui.picked.clear(); refresh(); },
   'vpn-selall': ()=>{ S.vpn.forEach(v=>ui.picked.add(String(v.id))); refresh(); },
   'vpn-clrsel': ()=>{ ui.picked.clear(); refresh(); },
@@ -1214,7 +1214,9 @@ function ripple(host, e){
    按钮 / 输入 / 勾选框 / 搜索框」这些真正的交互控件，绝不能按 [data-act] 一概排除
    —— 否则卡片长按会被自己的 data-act 拦掉（这正是此前 VPN 卡片长按失效的原因）。
    长按后吞掉尾随的 click —— 否则进入批量态后这次点击会变成一次「点选切换」把刚勾的取消。 */
-let lpTimer=null, lpStart=null, lpFired=false, lpEl=null, lpGlow=null;
+let lpTimer=null, lpStart=null, lpFired=false, lpEl=null, lpGlow=null, lpSig=null;
+/* 勾选集合快照：用于判断「长按进入批量后是否又改动过勾选」——没改动时点空白可快速退出 */
+const pickSig = () => [...ui.picked].sort().join(',');
 function lpReset(fired){
   if(lpTimer){ clearTimeout(lpTimer); lpTimer=null; }
   if(lpEl){ lpEl.classList.remove('lp-hold'); lpEl=null; }
@@ -1240,8 +1242,9 @@ document.addEventListener('pointerdown', e=>{
     try{ navigator.vibrate && navigator.vibrate(18); }catch{}
     if(!ui.batch){ ui.batch=true; ui.picked.clear(); }
     ui.picked.add(String(el.dataset.batchpick));
+    lpSig=pickSig();                       // 记住初始状态（仅勾选了被长按的这一条）
     refresh();
-    toast('已进入批量管理，可继续点选其它条目');
+    toast('已进入批量管理，点空白处可直接退出');
   }, 500);
 });
 document.addEventListener('pointerup', ()=>lpReset(false));
@@ -1257,6 +1260,12 @@ document.addEventListener('click', e=>{
     return closeLayer();
   }
   if(!e.target.closest('.combo')) closeCombos();
+  /* 长按进入批量后若未再改动勾选（仍只有被长按那一条），点击任意「非条目区域」即快速退出批量管理 */
+  if(lpSig!==null && ui.batch && pickSig()===lpSig &&
+     !e.target.closest('[data-batchpick], .cbox, .batch-bar, .dest-toolbar, .hd-actions, .sfield, input, #layer, .avatar-menu, .pop-menu, [data-act]')){
+    lpSig=null; ui.batch=false; ui.picked.clear(); refresh();
+    return;
+  }
   /* 竖屏：点击条目任意非交互区域，即在「点击位置」弹出操作选单（横屏保留操作列按钮，不触发） */
   const rh = e.target.closest('[data-rowacts]');
   if(rh && isMobile() && !e.target.closest('button,a,input,select,textarea,.cbox,.sfield,[data-act]')){
