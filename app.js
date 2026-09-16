@@ -666,7 +666,10 @@ function poolTable(list, ro){
         {act:'pool-edit', id:p.id, label: ro?'查看':'编辑'},
         {act:'pool-del', id:p.id, label:'删除', danger:true, disabled: !!ro},
       ];
-      return `<tr data-batchpick="${p.id}"${acts?` class="row-click"${rowActsAttr(acts)}`:''}><td class="cbox-col">${ck?`<div class="cbox ${on?'on':''}" data-act="pool-pick" data-id="${p.id}">${on?ICON.check:''}</div>`:''}</td>
+      /* 批量态：整行点击即勾选 / 取消勾选（不必非得点勾选框）；非批量态：整行点击弹出操作选单 */
+      const rowAttrs = ck ? ` class="row-click" data-act="pool-pick" data-id="${p.id}"`
+                          : (acts ? ` class="row-click"${rowActsAttr(acts)}` : '');
+      return `<tr data-batchpick="${p.id}"${rowAttrs}><td class="cbox-col">${ck?`<div class="cbox ${on?'on':''}" data-act="pool-pick" data-id="${p.id}">${on?ICON.check:''}</div>`:''}</td>
       <td><b>${esc(p.name)}</b><div class="sub">${esc(p.descr||'—')}</div></td>
       <td class="mono">${esc(p.ip)}</td><td class="mono">${esc(portText(p.port))}</td>
       <td><span class="badge">${esc(p.proto)}</span></td><td class="sub">${esc(svcOf(p.port))}</td>
