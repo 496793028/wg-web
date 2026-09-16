@@ -710,10 +710,8 @@ function viewDest(){
   }else{
     body = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:15px">
       ${S.packages.map((k,i)=>{ const items=k.poolIds.map(pool).filter(Boolean);
-        return `<div class="panel row-click" style="animation-delay:${i*45}ms"${rowActsAttr([
-            {act:'pkg-edit', id:k.id, label: ro?'查看内容':'管理内容'},
-            {act:'pkg-del', id:k.id, label:'删除', danger:true, disabled: !!ro},
-          ])}>
+        /* 点整卡 = 管理内容；右下仅保留「删除」 */
+        return `<div class="panel pkg-card row-click" style="animation-delay:${i*45}ms" data-act="pkg-edit" data-id="${k.id}">
           <div class="panel-hd"><div><div class="panel-title">${esc(k.name)}</div>
             <div class="sub" style="font-size:11.5px;color:var(--dim)">${esc(k.descr||'无说明')}</div></div>
             <span class="badge acc">${items.length} 项</span></div>
@@ -722,8 +720,7 @@ function viewDest(){
               <span style="opacity:.6">${esc(p.ip)}:${esc(portText(p.port))}</span></span>`).join('')
               + (items.length>4?`<span class="tag more">+${items.length-4}</span>`:'')
               : '<span class="empty-mini">尚未添加 IP-端口</span>'}</div>
-          <div style="display:flex;gap:8px" class="row-acts">
-            <button class="btn sm" data-act="pkg-edit" data-id="${k.id}">${ro?'查看内容':'管理内容'}</button>
+          <div style="display:flex;justify-content:flex-end">
             <button class="btn sm danger" data-act="pkg-del" data-id="${k.id}" ${ro?'disabled':''}>删除</button></div>
         </div>`;}).join('') || '<div class="empty"><p>暂无目的地包</p></div>'}</div>`;
   }
@@ -735,15 +732,11 @@ function viewDest(){
       <div class="tab ${ui.destTab==='pkg'?'on':''}" data-act="dtab" data-v="pkg">目的地包</div></div>
     <div class="tab-pane">${body}</div>`;
 }
-/* IP-端口池：卡片式（与 VPN 配置页同一套卡片语言） */
+/* IP-端口池：卡片式（与 VPN 配置页同一套卡片语言）；点整卡即进编辑弹窗，右下仅保留「删除」 */
 function poolCardHTML(p, i, ro){
   const on = ui.picked.has(String(p.id)), ck = ui.batch;
-  const acts = [
-    {act:'pool-edit', id:p.id, label: ro?'查看':'编辑'},
-    {act:'pool-del', id:p.id, label:'删除', danger:true, disabled: !!ro},
-  ];
-  /* 批量态：点整卡 = 勾选 / 取消；非批量态：点整卡弹操作选单（竖屏），右下按钮操作（横屏） */
-  const tap = ck ? ` data-act="pool-pick" data-id="${p.id}"` : rowActsAttr(acts);
+  /* 批量态：点整卡 = 勾选 / 取消；非批量态：点整卡 = 打开编辑弹窗 */
+  const tap = ck ? ` data-act="pool-pick" data-id="${p.id}"` : ` data-act="pool-edit" data-id="${p.id}"`;
   return `<div class="ucard pool-card${on?' pick':''}${ck?'':' row-click'}" data-batchpick="${p.id}"${tap}
       style="animation-delay:${i*35}ms">
     <div class="cbox ucard-pick ${on?'on':''}" data-act="pool-pick" data-id="${p.id}">${on?ICON.check:''}</div>
@@ -755,10 +748,7 @@ function poolCardHTML(p, i, ro){
       <span class="tag">${esc(svcOf(p.port))}</span>
       <span class="tag">${esc(portText(p.port))}</span></div></div>
     <div class="ucard-ft"><span>${esc(p.descr||'无说明')}</span>
-      <div class="row-acts">
-        <button class="btn sm" data-act="pool-edit" data-id="${p.id}">${ro?'查看':'编辑'}</button>
-        <button class="btn sm danger" data-act="pool-del" data-id="${p.id}" ${ro?'disabled':''}>删除</button>
-      </div></div>
+      <button class="btn sm danger" data-act="pool-del" data-id="${p.id}" ${ro?'disabled':''}>删除</button></div>
   </div>`;
 }
 function poolCards(list, ro){
@@ -1365,7 +1355,8 @@ document.addEventListener('click', e=>{
   if(lpFired){ lpFired=false; e.stopPropagation(); e.preventDefault(); return; }   // 长按已处理，吞掉尾随 click
   if(e.target.closest('[data-close]')) return closeLayer();
   if(e.target.matches('[data-backdrop]')){
-    if(isMobile() && layerHasUnsavedInput()) return;   // 移动端：二级菜单内有未保存输入时不关闭
+    /* 弹层里有内容 / 已有修改（搜索框除外）时，点周围不收起 —— 避免误关丢输入 */
+    if(layerHasUnsavedInput()) return;
     return closeLayer();
   }
   if(!e.target.closest('.combo')) closeCombos();
@@ -1384,7 +1375,7 @@ document.addEventListener('click', e=>{
   const t=e.target.closest('[data-act]'); if(!t) return;
   const fn=ACT[t.dataset.act];
   if(fn){
-    const host=t.closest('.btn,.nav-item,.tab,.icon-btn,.dock-expand,.dock-item,.dock-idwrap,.dock-avatar,.mbar-item,.profile-avatar');
+    const host=t.closest('.btn,.nav-item,.tab,.icon-btn,.dock-expand,.dock-item,.dock-idwrap,.dock-avatar,.mbar-item,.profile-avatar,.ucard,.pkg-card');
     if(host && !host.disabled) ripple(host, e);
     e.stopPropagation(); fn(t,e);
   }
