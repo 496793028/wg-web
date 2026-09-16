@@ -196,6 +196,8 @@ function grantTags(v){
   }).filter(Boolean);
 }
 const grantCount = v => v.grants.reduce((n,g)=> n + (g.t==='pool' ? 1 : (pkg(g.id)?pkg(g.id).poolIds.length:0)), 0);
+/* 授权目的地签名：用于判断「保存后客户端 AllowedIPs 是否会变」——模式切换或目的地增删都算变化 */
+const grantSig = g => (g||[]).map(x=>`${x.t}:${x.id}`).sort().join('|');
 
 /* ---------------- 渲染入口 ---------------- */
 function render(){
@@ -757,12 +759,13 @@ function openGrant(id){
   </div></div>`;
   bindSF();
 }
-async function showVpnConf(id){
+async function showVpnConf(id, note){
   let r;
   try{ r = await api('GET','vpn/'+id+'/conf'); }
   catch(e){ return toast(e.message,'err'); }
+  const noteHTML = note ? `<div class="warn-box">${esc(note)}</div>` : '';
   modal({ title:`客户端配置 — ${r.name}`, wide:true,
-    body:`<div class="field"><label>${esc(r.name)} · ${esc(r.vpn_ip)}</label>
+    body:`${noteHTML}<div class="field"><label>${esc(r.name)} · ${esc(r.vpn_ip)}</label>
       <textarea id="wgConf" class="wg-conf" readonly rows="15">${esc(r.conf)}</textarea></div>
       <div class="hint">私钥明文仅在服务端解密后下发，不会再次以明文存储。请通过安全渠道交付给用户，本窗口关闭后需重新点击「客户端配置」查看。</div>`,
     extra:'<button class="btn" id="copyConf">复制</button>',
@@ -1137,12 +1140,20 @@ const ACT = {
     const dr = document.querySelector('.drawer'); if(dr) dr.classList.toggle('black', black);
   },
   'grant-save': el=>{ const v=vuser(el.dataset.id);
+    const before = { mode: v.mode, sig: grantSig(v.grants) };
     const save = async ()=>{
       await api('PUT',`vpn/${v.id}/grants`,{grants:ui.editGrants, mode:ui.editMode});
       await loadState(); closeLayer(); refresh();
-      toast(ui.editMode==='deny'
-        ? `已启用黑名单模式：${v.name} 默认放行全部网段，${grantCount(vuser(v.id))} 个目的地被禁止`
-        : `已保存，${v.name} 可访问 ${grantCount(vuser(v.id))} 个目的地`);
+      const after = vuser(v.id);
+      const changed = before.mode !== after.mode || before.sig !== grantSig(after.grants);
+      if(changed){
+        // 授权模式或目的地变化会导致客户端 AllowedIPs 变化，弹出配置页提示重新下载（类比新增用户）
+        showVpnConf(v.id, '授权模式或目的地已变更，客户端 AllowedIPs 随之变化。请重新下载上面的配置并导入客户端（旧配置不会自动更新）。');
+      } else {
+        toast(ui.editMode==='deny'
+          ? `已启用黑名单模式：${v.name} 默认放行全部网段，${grantCount(after)} 个目的地被禁止`
+          : `已保存，${v.name} 可访问 ${grantCount(after)} 个目的地`);
+      }
     };
     if(ui.editMode==='deny'){
       confirmDanger('确认提交黑名单模式？',
