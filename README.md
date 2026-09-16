@@ -13,6 +13,27 @@
 
 ---
 
+## 界面预览
+
+<table>
+<tr>
+  <td width="50%"><img src="screenshot_desktop.png" alt="桌面端 - VPN 用户管理"></td>
+  <td width="50%"><img src="screenshot_mobile.png" alt="移动端 - 竖屏适配"></td>
+</tr>
+<tr>
+  <td align="center"><b>桌面端</b> — 分层侧栏导航 · VPN 用户卡片网格 · 状态/黑名单实时可见</td>
+  <td align="center"><b>移动端</b> — 顶栏 + 底栏适配竖屏 · 卡片单列 · 鎏金黑名单 · 触屏原生交互</td>
+</tr>
+</table>
+
+### 登录页
+
+<p align="center"><img src="screenshot_login.png" alt="登录页" width="450"></p>
+
+> 深色/浅色双主题 · scrypt 口令哈希 · 会话超时与空闲回收 · 失败锁定（管理员豁免）
+
+---
+
 > 📌 **验证状态（2026-09-15 更新）**
 >
 > - **端到端已打通**：在真实网关（Rocky Linux 10 · 内核态 WireGuard · firewalld + Docker）完成全链路实测 —— netns 内起真实 WireGuard 客户端连本机 `51820`：**握手成功**；授权目标（`<内网目标主机 IP>:100/TCP`）被 **ALLOW**、未授权端口与 ICMP 被 **DENY**；临时授权一个开放端口后**连接成功**，抓包见完整三次握手且源地址被 **masquerade** 成网关本机 IP（已收到对端 SSH banner）。此前在另一台测试机（CentOS 7.9 + 用户态 wireguard-go）做过控制面验证。
@@ -26,6 +47,7 @@
 
 ## 目录
 
+- [界面预览](#界面预览)
 - [它解决什么问题](#它解决什么问题)
 - [核心特性](#核心特性)
 - [架构](#架构)
