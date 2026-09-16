@@ -566,9 +566,11 @@ body.theme-light .mbar-cursor{background:linear-gradient(135deg,rgba(47,107,255,
 .pp-hd{font-size:12px;color:var(--dim);margin-bottom:2px}
 .perm-row{display:flex;align-items:center;justify-content:space-between;font-size:13.5px}
 .perm-mod{color:var(--txt)}
-/* 下方独立一行：修改密码 / 退出登录 横向并排 */
-.profile-actions{grid-column:1 / -1;grid-row:2;display:flex;flex-direction:row;gap:12px;margin-top:0}
-.profile-actions .btn.block{flex:1 1 0;width:auto;padding:11px 12px}
+/* 下方独立一行：修改密码 / 退出登录 —— 图标在上、文字在下，尺寸收紧、居中并排 */
+.profile-actions{grid-column:1 / -1;grid-row:2;display:flex;flex-direction:row;justify-content:center;gap:12px;margin-top:0}
+.profile-actions .btn.block{flex:0 0 auto;width:auto;min-width:116px;flex-direction:column;gap:5px;
+  padding:9px 16px;font-size:12.5px;border-radius:12px}
+.profile-actions .btn.block svg{width:17px;height:17px}
 .pf-row{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;
   background:var(--panel2);border:1px solid var(--line);border-radius:12px}
 .pf-label{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;color:var(--txt)}
@@ -645,8 +647,9 @@ body.theme-light .warn-box{color:#c0392b}
   .profile-hero-inner{grid-column:auto;grid-row:auto;background:transparent;border:0;border-radius:0;padding:0;
     box-shadow:none;animation:none}
   .profile-perms-card{grid-column:auto;grid-row:auto}
-  .profile-actions{grid-column:auto;grid-row:auto;flex-direction:column;gap:12px;margin-top:18px}
-  .profile-actions .btn.block{flex:none;width:100%;padding:11px}
+  /* 竖屏：同样收紧为「图标在上、文字在下」，两个按钮保持并排 */
+  .profile-actions{grid-column:auto;grid-row:auto;flex-direction:row;justify-content:flex-start;gap:10px;margin-top:18px}
+  .profile-actions .btn.block{flex:1 1 0;width:auto;min-width:0;padding:9px 8px}
   /* 竖屏移除「操作」列：改为点击整条、在弹出的选单里操作（横屏保留该列与原有按钮） */
   .col-op{display:none}
   /* 目的地池工具栏（竖屏）：搜索占满一行，添加/批量删除并排，不再各占整宽 */
