@@ -574,14 +574,19 @@ async function grantedDestIps(vpnId) {
   return [...ips];
 }
 
-app.get('/api/vpn/:id/conf', attach, need('vpn', 'r'), async (req, res) => {
-  const v = await q1(`SELECT name, vpn_ip, privkey, mode, full_proxy FROM vpn_account WHERE id=?`, [Number(req.params.id)]);
-  if (!v) return res.status(404).json({ error: '用户不存在' });
+/* 生成某账号的 .conf（含 wg-meta）。wg-meta 在原有 姓名/模式/网段 基础上，
+ * 额外写入 server(服务端基址) / token(每账号只读令牌) / id(账号 id)，
+ * 配套客户端 wg-companion 导入后即可凭 token 定时从服务端拉取最新配置，无需手动重新下载。
+ * token 懒生成（首次取配置时写入库），仅能读本账号 conf，等同于只读配置导出。 */
+async function buildConf(vpnId, req) {
+  const v = await q1(`SELECT id, name, vpn_ip, privkey, mode, full_proxy, client_token
+                       FROM vpn_account WHERE id=?`, [Number(vpnId)]);
+  if (!v) return null;
   const priv = v.privkey ? decKey(v.privkey) : null;
   const pub = serverPub();
   const ep = process.env.WG_ENDPOINT || '';
   if (!priv || !pub || !ep)
-    return res.status(400).json({ error: '缺少配置要素：请设置 WG_ENDPOINT 与网关公钥（WG_SERVER_PUB 或 server.pub），且该用户已有密钥' });
+    return { error: '缺少配置要素：请设置 WG_ENDPOINT 与网关公钥（WG_SERVER_PUB 或 server.pub），且该用户已有密钥' };
   const mode = v.mode === 'deny' ? 'deny' : 'allow';
   const allowParts = [];
   for (const p of String(process.env.WG_CLIENT_ALLOWED || '10.100.0.0/24, 10.0.0.0/8').split(',')) {
@@ -594,27 +599,32 @@ app.get('/api/vpn/:id/conf', attach, need('vpn', 'r'), async (req, res) => {
     // AllowedIPs = env 基础路由 + 该用户被授权的目标 IP(/32)。
     // 这样在网页授权某内网目标后，客户端会自动把该目标路由进隧道，
     // 不再需要手动在 WG_CLIENT_ALLOWED 里列出所有内网段（否则跨子网目标连不通）。
-    for (const ip of await grantedDestIps(Number(req.params.id))) allowParts.push(ip + '/32');
+    for (const ip of await grantedDestIps(Number(vpnId))) allowParts.push(ip + '/32');
   }
   // 全代理模式：客户端把全部流量送进隧道 —— 内网仍由网关按权限控制，外网经网关 NAT 转发出去
   if (v.full_proxy) allowParts.push('0.0.0.0/0');
   const _seen = new Set(); const allowIps = [];
   for (const x of allowParts) { if (!_seen.has(x)) { _seen.add(x); allowIps.push(x); } }
 
-  /* 客户端 .conf 必须是纯 ASCII：含中文会导致 WireGuard 客户端导入失败（兜底再滤一次） */
-  /* 附带 wg-meta 元数据注释（base64 UTF-8，保持 ASCII）：配套客户端 wg-companion
-     解析后在界面显示真实姓名 / 授权模式（白名单·黑名单·全代理）/ 被授权网段；
-   标准客户端按注释行忽略，不受影响。 */
+  /* 每账号只读令牌：懒生成（首次导出时写入），撤销=清空 client_token 即可 */
+  let token = v.client_token;
+  if (!token) { token = crypto.randomBytes(24).toString('hex'); await D.run(`UPDATE vpn_account SET client_token=? WHERE id=?`, [token, v.id]); }
+
+  /* 服务端基址：优先 WG_PUBLIC_URL（反代/非标准端口场景），否则取请求 host */
+  const serverBase = (process.env.WG_PUBLIC_URL || (req ? `${req.protocol}://${req.get('host')}` : '')).replace(/\/+$/, '');
+
+  /* wg-meta 元数据注释（base64 UTF-8，保持 ASCII）：配套客户端解析后在界面显示
+     真实姓名 / 授权模式（白名单·黑名单·全代理）/ 被授权网段；标准客户端按注释行忽略。 */
   const meta64 = Buffer.from(JSON.stringify({
-    v: 1, name: v.name, mode, proxy: v.full_proxy ? 1 : 0, nets: allowIps
+    v: 1, name: v.name, mode, proxy: v.full_proxy ? 1 : 0, nets: allowIps,
+    server: serverBase, token, id: v.id
   }), 'utf8').toString('base64');
+
   /* DNS 仅在全量进隧道的模式下注入（黑名单 / 全代理 → AllowedIPs 含 0.0.0.0/0）：
-     此时本机内网 DNS 的查询也会进隧道，且内网解析地址在网关侧属「非授权内网」会被默认拒绝，
-     必须把 DNS 指到经隧道可达的公共解析（WG_CLIENT_DNS），否则「握手成功但所有域名解析失败」。
-     白名单模式只有被授权的 /32 进隧道，系统 DNS 走物理网络，不受影响，故不注入。 */
+     此时本机内网 DNS 查询也进隧道，且内网解析地址在网关侧属「非授权内网」会被默认拒绝，
+     必须把 DNS 指到经隧道可达的公共解析（WG_CLIENT_DNS）。白名单模式不注入。 */
   const fullTunnel = allowIps.includes('0.0.0.0/0');
-  const dnsLine = (process.env.WG_CLIENT_DNS && fullTunnel)
-    ? `DNS = ${process.env.WG_CLIENT_DNS}\n` : '';
+  const dnsLine = (process.env.WG_CLIENT_DNS && fullTunnel) ? `DNS = ${process.env.WG_CLIENT_DNS}\n` : '';
   const conf = `# wg-meta v1 ${meta64}
 [Interface]
 PrivateKey = ${priv}
@@ -626,7 +636,29 @@ Endpoint = ${ep}
 AllowedIPs = ${allowIps.join(', ')}
 PersistentKeepalive = 25
 `.replace(/[^\t\n\r\x20-\x7E]/g, '');
-  res.json({ name: v.name, vpn_ip: v.vpn_ip, conf });
+  const hash = crypto.createHash('sha256').update(conf).digest('hex');
+  return { name: v.name, vpn_ip: v.vpn_ip, conf, hash };
+}
+
+/* 管理端：导出某账号 .conf（需 vpn 读权限）。返回的 conf 已含自动更新所需的 server/token/id。 */
+app.get('/api/vpn/:id/conf', attach, need('vpn', 'r'), async (req, res) => {
+  const r = await buildConf(Number(req.params.id), req);
+  if (!r) return res.status(404).json({ error: '用户不存在' });
+  if (r.error) return res.status(400).json({ error: r.error });
+  res.json({ name: r.name, vpn_ip: r.vpn_ip, conf: r.conf, hash: r.hash });
+});
+
+/* 客户端免登录只读接口：凭每账号 client_token 拉取该账号最新 conf，用于自动更新。
+ * 不需要管理员会话；令牌仅能读本账号配置，等同于只读导出。撤销令牌即失效。 */
+app.get('/api/client/conf', async (req, res) => {
+  const token = String(req.query.token || '').trim();
+  if (!token) return res.status(400).json({ error: '缺少 token' });
+  const v = await q1(`SELECT id FROM vpn_account WHERE client_token=?`, [token]);
+  if (!v) return res.status(404).json({ error: '令牌无效或已被撤销' });
+  const r = await buildConf(v.id, req);
+  if (!r) return res.status(404).json({ error: '用户不存在' });
+  if (r.error) return res.status(400).json({ error: r.error });
+  res.json({ name: r.name, vpn_ip: r.vpn_ip, conf: r.conf, hash: r.hash });
 });
 app.put('/api/vpn/:id/grants', attach, need('vpn', 'rw'), async (req, res) => {
   const id = Number(req.params.id);
@@ -771,6 +803,7 @@ async function initDb() {
     if (!cols.includes('privkey')) await D.run(`ALTER TABLE vpn_account ADD COLUMN privkey VARCHAR(255) NULL`);
     if (!cols.includes('mode'))    await D.run(`ALTER TABLE vpn_account ADD COLUMN mode VARCHAR(8) NOT NULL DEFAULT 'allow'`);
     if (!cols.includes('full_proxy')) await D.run(`ALTER TABLE vpn_account ADD COLUMN full_proxy INTEGER NOT NULL DEFAULT 0`);
+    if (!cols.includes('client_token')) await D.run(`ALTER TABLE vpn_account ADD COLUMN client_token VARCHAR(64) NULL`);
   } catch (e) { console.error('[WARN] 字段迁移失败：', e.message); }
   /* 不设任何固定默认口令。未配置 ADMIN_INIT_PWD 时，admin 以「口令未设置」状态创建
      （pwd_hash 存空串），首次打开平台会引导在网页上设置口令。
