@@ -466,25 +466,32 @@ async function uploadAvatar(dataURL){
 function isMobile(){
   return window.matchMedia('(max-width: 760px), (orientation: portrait) and (max-width: 900px)').matches;
 }
-/* 二级菜单（modal/drawer）内存在未保存输入（搜索框除外）时，移动端点击遮罩不关闭 */
-function layerHasUnsavedInput(){
-  const layer=$('#layer'); if(!layer) return false;
-  return [...layer.querySelectorAll('input,textarea,select')].some(el=>{
-    if(el.closest('.sfield, .combo-search')) return false;
-    return (el.value||'').trim() !== '';
-  });
-}
 /* 弹层字段签名：打开时留快照(layerSig0)，点周围关闭前比对 —— 只有内容「真的被改过」
    才阻止关闭（编辑弹窗字段是预填的，只看非空会永远关不掉）。
-   签名覆盖 input/textarea/select 与下拉(combo-val)的当前值，搜索框除外。 */
+   签名覆盖 input/textarea/select 与下拉(combo-val)的当前值，搜索框除外。
+   同时逐字段记录初始值(layerSnap)：「点外部试图关闭」时据此精确标黄改过的字段；
+   抽屉另有状态快照(drawerSnap)：黑名单 / 全代理 / 授权清单，改动同样算「未保存」。 */
 let layerSig0 = null;
+let layerSnap = new Map();
+let drawerSnap = null;
+const fieldVal = el => (el.tagName==='INPUT' && el.type==='checkbox') ? (el.checked?'1':'0')
+  : (el.value!=null ? el.value : el.textContent);
 function layerSig(){
   const layer=$('#layer'); if(!layer) return '';
   return [...layer.querySelectorAll('input,textarea,select,.combo-val')]
     .filter(el=>!el.closest('.sfield, .combo-search'))
-    .map(el=>`${el.name||el.id||el.tagName}=${el.value!=null?el.value:el.textContent}`).join('|');
+    .map(el=>`${el.name||el.id||el.tagName}=${fieldVal(el)}`).join('|');
 }
-function snapLayer(){ layerSig0 = layerSig(); }
+function snapLayer(){
+  layerSig0 = layerSig();
+  layerSnap = new Map();
+  const layer=$('#layer');
+  if(layer) [...layer.querySelectorAll('input,textarea,select,.combo-val')]
+    .filter(el=>!el.closest('.sfield, .combo-search'))
+    .forEach(el=>layerSnap.set(el, fieldVal(el)));
+  drawerSnap = (layer && layer.querySelector('.drawer')) ? {
+    mode: ui.editMode==='deny', proxy: !!ui.editProxy, grants: grantSig(ui.editGrants) } : null;
+}
 /* 条目（表格行 / 卡片）：竖屏下点击整条即在点击位置弹出操作选单；横屏保留操作列按钮。 */
 function rowActsAttr(acts){ return ` data-rowacts='${JSON.stringify(acts)}'`; }
 function openActionMenu(anchor, acts, pt){
@@ -784,9 +791,9 @@ function poolForm(id){
   const preview = ps.length
     ? ps.map(v=>`<span class="tag pool">${v}</span>`).join('')
     : `<span class="tag proto-empty">未选择协议</span>`;
-  return `<div class="field"><label>名称</label><input name="name" value="${esc(p.name)}" ${ro?'disabled':''} placeholder="如：数据库-MySQL"></div>
-    <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="10.0.20.5"></div>
-    <div class="field"><label>端口或区间，用逗号分隔</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口"></div></div>
+  return `<div class="field"><label>名称</label><input name="name" value="${esc(p.name)}" ${ro?'disabled':''} placeholder="如：数据库-MySQL"><div class="field-err"></div></div>
+    <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="10.0.20.5"><div class="field-err"></div></div>
+    <div class="field"><label>端口或区间，用逗号分隔</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口"><div class="field-err"></div></div></div>
     <div class="field"><label>协议（可多选，必须至少勾选一种）</label>
       <div class="proto-chks">
         ${['TCP','UDP'].map(v=>`<label class="proto-chk ${chk(v)?'on':''}${ro?' ro':''}">
@@ -794,7 +801,8 @@ function poolForm(id){
           <span class="pc-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>
           <span class="pc-txt">${v}</span></label>`).join('')}
       </div>
-      <div class="proto-preview">${preview}</div>
+      <div class="proto-preview" id="protoPreview">${preview}</div>
+      <div class="proto-err-slot" id="protoErrSlot"></div>
       <div class="hint">同时勾选 TCP 与 UDP = 同一 IP:端口 两种协议一起放行；至少需勾选一种协议才能保存。</div></div>
     <div class="field" style="margin-bottom:0"><label>说明</label>
       <input name="descr" value="${esc(p.descr||'')}" ${ro?'disabled':''}></div>`;
@@ -803,7 +811,7 @@ function pkgForm(id){
   const k = id ? pkg(id) : { name:'', descr:'', poolIds:[] };
   const ro = !canEdit('dest');
   return `<div class="grid2"><div class="field"><label>包名称</label>
-      <input name="name" value="${esc(k.name)}" ${ro?'disabled':''}></div>
+      <input name="name" value="${esc(k.name)}" ${ro?'disabled':''}><div class="field-err"></div></div>
     <div class="field"><label>说明</label><input name="descr" value="${esc(k.descr||'')}" ${ro?'disabled':''}></div></div>
     <div class="field" style="margin-bottom:0"><label>包含的 IP-端口</label>
       ${sfield('sf_pkg', ui.q.pkg, v=>{ ui.q.pkg=v; const l=$('#pkgList'); if(l) l.innerHTML=pkgListHTML(); },'搜索名称 / IP / 端口')}
@@ -867,8 +875,8 @@ function renderVpnCards(){
   g.innerHTML = list.map((v,i)=>ucardHTML(v,i)).join('') || '<div class="empty"><p>没有匹配的用户</p></div>';
 }
 function vpnForm(){
-  return `<div class="field"><label>真实姓名</label><input name="name" placeholder="如：陈晓明"></div>
-    <div class="grid2"><div class="field"><label>VPN 内网 IP</label><input name="vpn_ip" placeholder="留空自动分配">
+  return `<div class="field"><label>真实姓名</label><input name="name" placeholder="如：陈晓明"><div class="field-err"></div></div>
+    <div class="grid2"><div class="field"><label>VPN 内网 IP</label><input name="vpn_ip" placeholder="留空自动分配"><div class="field-err"></div>
       <div class="hint">自动分配：10.100.0.x 取当前最大值 +1</div></div>
     <div class="field"><label>部门 / 备注</label><input name="note" placeholder="选填"></div></div>
     <div class="field" style="margin-bottom:0"><label>访问授权</label>
@@ -1056,7 +1064,9 @@ function modal(o){
   if(ok) ok.onclick = async ()=>{
     if(!o.onOk) return closeLayer();
     ok.disabled = true;
-    try{ if(await o.onOk() !== false) closeLayer(); } finally { ok.disabled = false; }
+    try{ if(await o.onOk() !== false) closeLayer(); }
+    catch(e){ toast(e.message,'err'); }   // 服务端校验报错也要可见，绝不静默
+    finally { ok.disabled = false; }
   };
   bindSF(); snapLayer(); if(o.after) o.after();
 }
@@ -1131,53 +1141,92 @@ function validateRequired(items){
   if(!ok){ shakeLayer(); if(firstEl) firstEl.focus(); }
   return ok;
 }
-/* 协议未勾选：在 .proto-chks 上标红 + 原因 */
+/* 协议未勾选：勾选组外圈红光 + 预留槽位中的精致警告框 */
 function protoError(msg){
   const wrap=$('#layer .proto-chks');
-  setFieldError(wrap, msg);
+  if(wrap) wrap.classList.add('err');
+  const slot=document.getElementById('protoErrSlot');
+  if(slot) slot.innerHTML=`<div class="proto-err-box">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <span>${esc(msg)}</span></div>`;
   shakeLayer();
 }
-/* 同步 IP-端口池协议预览胶囊（勾选变化时实时更新） */
+/* 同步 IP-端口池协议预览胶囊（勾选变化时实时更新）；勾选即清校验红光与警告框 */
 function syncProtoPreview(){
   const wrap=document.getElementById('protoPreview'); if(!wrap) return;
   const checked=$$('#layer input[name="proto"]:checked').map(x=>x.value);
   wrap.innerHTML = checked.length
     ? checked.map(v=>`<span class="tag pool">${esc(v)}</span>`).join('')
-    : `<span class="tag proto-empty">未选择协议</span>`;
+    : `<span class="tag proto-none">未选择协议</span>`;
   const chks=document.querySelector('#layer .proto-chks');
-  if(chks){ chks.classList.remove('err'); const f=chks.closest('.field');
-    if(f){ const e=f.querySelector(':scope > .field-err'); if(e) e.textContent=''; } }
+  if(chks) chks.classList.remove('err');
+  const slot=document.getElementById('protoErrSlot'); if(slot) slot.innerHTML='';
 }
-/* 输入框被改动：标黄（未保存）+ 顺手清掉该字段的校验红框 */
+/* 输入框被改动：顺手清掉该字段的校验红框与原因文字，并清除「未保存警告」的全部视觉状态
+   （黄标 + 金色提示条）。⚠️ 按需求：正常编辑过程不标黄，黄标只在「点外部试图关闭」时出现。 */
 function onLayerInput(el){
   if(!el || !el.closest || !el.closest('#layer')) return;
   if(!el.matches('input,select,textarea')) return;
-  const f=el.closest('.field'); if(!f) return;
-  el.classList.add('modified');
+  const f=el.closest('.field'); if(f){ const e=f.querySelector(':scope > .field-err'); if(e) e.textContent=''; }
   el.classList.remove('err');
-  const e=f.querySelector(':scope > .field-err'); if(e) e.textContent='';
+  clearWarnVisuals();
 }
-/* 点遮罩关闭时被「未保存改动」拦截：提示是否保存 + 晃动 */
-function showUnsavedBar(){
+/* 点遮罩试图关闭时的「未保存」警告：精确标黄改过的输入框/开关行，
+   顶部浮出金色提示（无按钮），并轻微晃动窗体。 */
+function warnUnsaved(){
   const layer=$('#layer'); if(!layer) return;
-  if(layer.querySelector('.unsaved-bar')) return;
-  const body=layer.querySelector('.modal-bd') || layer.querySelector('.drawer-bd');
-  if(!body) return;
-  const bar=document.createElement('div');
-  bar.className='unsaved-bar';
-  bar.innerHTML=`<span>⚠ 有未保存的修改，是否保存？</span>
-    <span class="ub-actions">
-      <button class="btn sm" data-ub="edit">继续编辑</button>
-      <button class="btn sm danger" data-ub="discard">放弃并关闭</button>
-      <button class="btn sm primary" data-ub="save">保存修改</button></span>`;
-  body.insertBefore(bar, body.firstChild);
-  bar.querySelector('[data-ub="edit"]').onclick=()=>bar.remove();
-  bar.querySelector('[data-ub="discard"]').onclick=()=>closeLayer();
-  bar.querySelector('[data-ub="save"]').onclick=()=>{
-    const ok=layer.querySelector('.modal [data-ok]') || layer.querySelector('[data-act="grant-save"]');
-    if(ok) ok.click();   // 复用既有保存逻辑（含校验，校验失败会就地显示红框）
-  };
+  const box=layer.querySelector('.modal, .drawer'); if(!box) return;
+  for(const [el,v0] of layerSnap){
+    if(fieldVal(el)!==v0){
+      el.classList.add('modified');
+      const row=el.closest('.mode-toggle'); if(row) row.classList.add('warn-mark');
+    }
+  }
+  if(drawerSnap){
+    if((ui.editMode==='deny')!==drawerSnap.mode)
+      layer.querySelector('.mode-toggle:not(.proxy)')?.classList.add('warn-mark');
+    if(!!ui.editProxy!==drawerSnap.proxy)
+      layer.querySelector('[data-act="proxy-toggle"]')?.classList.add('warn-mark');
+  }
+  if(!box.querySelector('.unsaved-pop')){
+    const pop=document.createElement('div'); pop.className='unsaved-pop';
+    pop.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span>有未保存的修改，是否保存？</span>`;
+    box.appendChild(pop);
+  }
   shakeLayer();
+}
+/* 清除未保存警告的视觉状态：所有黄标 + 金色提示条（修改任何内容时调用） */
+function clearWarnVisuals(){
+  $$('#layer .modified').forEach(e=>e.classList.remove('modified'));
+  $$('#layer .warn-mark').forEach(e=>e.classList.remove('warn-mark'));
+  document.querySelector('#layer .unsaved-pop')?.remove();
+}
+/* ---- 前端输入校验（与服务端 parsePorts / IP_RE 同规则，提交前给出行内红框反馈） ---- */
+/* IP：点分十进制四段、每段 0-255（比服务端仅校验格式更严，前端通过则后端必过） */
+const IP_FRONT_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+function validIP(v){
+  const m = IP_FRONT_RE.exec(String(v==null?'':v).trim());
+  if(!m) return 'IP 格式不正确（应为点分十进制，如 10.0.20.5）';
+  if([m[1],m[2],m[3],m[4]].some(x=>Number(x)>255)) return 'IP 每一段需在 0-255 之间';
+  return '';
+}
+/* 端口：留空 = 所有端口；否则「80」「100-200」或它们的逗号/全角逗号/顿号组合，最多 64 段 */
+function validPort(v){
+  const s = String(v==null?'':v).replace(/[，、]/g,',').trim();
+  if(!s) return '';
+  const parts = s.split(',').map(x=>x.trim()).filter(Boolean);
+  if(!parts.length) return '';
+  if(parts.length>64) return '端口条目过多（最多 64 段）';
+  for(const p of parts){
+    const single = p.match(/^(\d{1,5})$/), range = p.match(/^(\d{1,5})\s*-\s*(\d{1,5})$/);
+    if(single){ const a=Number(single[1]); if(a<1||a>65535) return `端口需在 1-65535 之间：${p}`; }
+    else if(range){
+      const a=Number(range[1]), b=Number(range[2]);
+      if(a<1||a>65535||b<1||b>65535) return `端口需在 1-65535 之间：${p}`;
+      if(a>b) return `端口区间起止颠倒：${p}（应写成 小-大，如 100-200）`;
+    } else return `端口格式不正确：${p}（应为 80、100-200，或它们的逗号组合）`;
+  }
+  return '';
 }
 /* 密码输入框（带「显示/隐藏」眼睛按钮）。opts: {ac,ph,val,hint,last} */
 function pwField(label, name, opts){
@@ -1200,7 +1249,7 @@ function bindSeg(){ $$('#layer .seg').forEach(s=>s.querySelectorAll('button').fo
   b.onclick=()=>{ s.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); }; })); }
 
 /* ---------------- 事件 ---------------- */
-/* 黑名单开关视觉同步（不重置已勾选目的地） */
+/* 黑名单开关视觉同步（不重置已勾选目的地）；开关即改动 → 清除未保存警告视觉 */
 function setModeToggle(black){
   const el = document.querySelector('.mode-toggle');
   if(el){ el.classList.toggle('on', black);
@@ -1208,13 +1257,16 @@ function setModeToggle(black){
   const hint = document.getElementById('blkHint'); if(hint) hint.style.display = black ? '' : 'none';
   const l = document.getElementById('grantList'); if(l) l.innerHTML = grantListHTML();
   const dr = document.querySelector('.drawer'); if(dr) dr.classList.toggle('black', black);
+  clearWarnVisuals();
 }
-/* 全代理开关视觉同步 */
+/* 全代理开关视觉同步（与黑名单一致：开关即时体现到抽屉绿/紫光晕） */
 function setProxyToggle(on){
   const el = document.querySelector('[data-act="proxy-toggle"]');
   if(el){ el.classList.toggle('on', on); el.classList.toggle('proxy', on);
     const sw = el.querySelector('.am-switch'); if(sw) sw.classList.toggle('on', on); }
   const hint = document.getElementById('proxyHint'); if(hint) hint.style.display = on ? '' : 'none';
+  const dr = document.querySelector('.drawer'); if(dr) dr.classList.toggle('proxy', on);
+  clearWarnVisuals();
 }
 
 const ACT = {
@@ -1300,7 +1352,7 @@ const ACT = {
     const cur=c.options.find(o=>String(o.v)===String(c.value));
     const val=box.querySelector('.combo-val');
     val.textContent=cur?cur.t:(c.ph||'请选择'); val.classList.toggle('ph',!cur);
-    closeCombos(); if(c.onPick) c.onPick(c.value); },
+    closeCombos(); if(c.onPick) c.onPick(c.value); clearWarnVisuals(); },
 
   /* 账号 */
   'acct-new': ()=> modal({title:'新增管理员账号', wide:true, body:acctForm(null), after:bindSeg, onOk: async ()=>{
@@ -1333,18 +1385,26 @@ const ACT = {
   /* 目的地 */
   'pool-new': ()=> modal({title:'新增 IP-端口', body:poolForm(null), onOk: async ()=>{
       if(!validateRequired([{n:'name',label:'名称'},{n:'ip',label:'IP 地址'}])) return false;
+      const g=readForm();
+      const ipErr=validIP(g.ip);
+      if(ipErr){ setFieldError($('#layer [name="ip"]'), ipErr); shakeLayer(); return false; }
+      const portErr=validPort(g.port);
+      if(portErr){ setFieldError($('#layer [name="port"]'), portErr); shakeLayer(); return false; }
       const protos=$$('#layer input[name="proto"]:checked').map(x=>x.value);
       if(!protos.length){ protoError('请至少勾选一种协议（TCP 或 UDP）'); return false; }
-      const g=readForm();
       await api('POST','pools',{...g,proto:protos.join(',')}); await loadState();
       refresh(); toast('已添加'); }}),
   'pool-edit': el=>{ const p=pool(el.dataset.id);
     modal({title:'编辑 IP-端口', body:poolForm(p.id), onOk: async ()=>{
       if(!canEdit('dest')) return;
       if(!validateRequired([{n:'name',label:'名称'},{n:'ip',label:'IP 地址'}])) return false;
+      const g=readForm();
+      const ipErr=validIP(g.ip);
+      if(ipErr){ setFieldError($('#layer [name="ip"]'), ipErr); shakeLayer(); return false; }
+      const portErr=validPort(g.port);
+      if(portErr){ setFieldError($('#layer [name="port"]'), portErr); shakeLayer(); return false; }
       const protos=$$('#layer input[name="proto"]:checked').map(x=>x.value);
       if(!protos.length){ protoError('请至少勾选一种协议（TCP 或 UDP）'); return false; }
-      const g=readForm();
       await api('PUT','pools/'+p.id,{...g,proto:protos.join(',')}); await loadState();
       refresh(); toast('已保存'); }}); },
   'pool-del': el=>{ const p=pool(el.dataset.id);
@@ -1388,6 +1448,8 @@ const ACT = {
   'vpn-new': ()=> modal({title:'新增 VPN 用户', body:vpnForm(), onOk: async ()=>{
       if(!validateRequired([{n:'name',label:'真实姓名'}])) return false;
       const g=readForm();
+      if(g.vpn_ip){ const ipErr=validIP(g.vpn_ip);
+        if(ipErr){ setFieldError($('#layer [name="vpn_ip"]'), ipErr); shakeLayer(); return false; } }
       const r=await api('POST','vpn',g); await loadState();
       /* 新用户还没有任何授权 → AllowedIPs 里为空，此刻弹出的 conf 只要一配地址就作废了，
          所以创建时不再弹配置页；改为提示去卡片里配置目的地（配好并保存时由 grant-save 按需弹 conf）。 */
@@ -1412,8 +1474,8 @@ const ACT = {
   'grant-toggle': el=>{ const {t,id}=el.dataset;
     const i=ui.editGrants.findIndex(g=>g.t===t && String(g.id)===String(id));
     i>=0 ? ui.editGrants.splice(i,1) : ui.editGrants.push({t,id});
-    const l=$('#grantList'); if(l) l.innerHTML=grantListHTML(); },
-  'grant-clear': ()=>{ ui.editGrants=[]; const l=$('#grantList'); if(l) l.innerHTML=grantListHTML(); },
+    const l=$('#grantList'); if(l) l.innerHTML=grantListHTML(); clearWarnVisuals(); },
+  'grant-clear': ()=>{ ui.editGrants=[]; const l=$('#grantList'); if(l) l.innerHTML=grantListHTML(); clearWarnVisuals(); },
   /* 抽屉内「黑名单模式」开关：打开时二次确认，确认后才真正开启（保存时不再确认） */
   'mode-toggle': ()=>{
     const cur = ui.editMode==='deny';
@@ -1515,9 +1577,14 @@ document.addEventListener('click', e=>{
   if(lpFired){ lpFired=false; e.stopPropagation(); e.preventDefault(); return; }   // 长按已处理，吞掉尾随 click
   if(e.target.closest('[data-close]')) return closeLayer();
   if(e.target.matches('[data-backdrop]')){
-    /* 内容「真的被改过」（与打开时的快照不同）才阻止点周围关闭；没改过 → 允许点周围关闭 */
-    if(layerSig0!==null && layerSig()!==layerSig0){ shakeLayer(); showUnsavedBar(); return; }
-    if(isMobile() && layerHasUnsavedInput()) return;
+    /* 「未保存」= 字段签名变化（含抽屉的黑名单/全代理开关与授权清单变化）。
+       首次点外部：黄标改动项 + 金色提示 + 轻晃，不关闭；已提示过仍未保存再点外部 = 放弃修改关闭。 */
+    const drChanged = drawerSnap ? ((ui.editMode==='deny')!==drawerSnap.mode ||
+      (!!ui.editProxy)!==drawerSnap.proxy || grantSig(ui.editGrants)!==drawerSnap.grants) : false;
+    if((layerSig0!==null && layerSig()!==layerSig0) || drChanged){
+      if(layer.querySelector('.unsaved-pop')) return closeLayer();
+      warnUnsaved(); return;
+    }
     return closeLayer();
   }
   if(!e.target.closest('.combo')) closeCombos();
@@ -1545,7 +1612,7 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeCombos(); c
 /* 协议勾选胶囊：勾选状态同步到外壳 .on（外壳高亮不用 :has()，兼容所有浏览器） */
 document.addEventListener('change', e=>{
   const i=e.target.closest('.proto-chk input');
-  if(i){ i.closest('.proto-chk')?.classList.toggle('on', i.checked); syncProtoPreview(); return; }
+  if(i){ i.closest('.proto-chk')?.classList.toggle('on', i.checked); syncProtoPreview(); clearWarnVisuals(); return; }
   onLayerInput(e.target);
 });
 /* 文本框输入：标记未保存改动（黄色光晕）+ 顺手清掉该字段的校验红框 */
