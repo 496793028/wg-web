@@ -608,13 +608,19 @@ app.get('/api/vpn/:id/conf', attach, need('vpn', 'r'), async (req, res) => {
   const meta64 = Buffer.from(JSON.stringify({
     v: 1, name: v.name, mode, proxy: v.full_proxy ? 1 : 0, nets: allowIps
   }), 'utf8').toString('base64');
+  /* DNS 仅在全量进隧道的模式下注入（黑名单 / 全代理 → AllowedIPs 含 0.0.0.0/0）：
+     此时本机内网 DNS 的查询也会进隧道，且内网解析地址在网关侧属「非授权内网」会被默认拒绝，
+     必须把 DNS 指到经隧道可达的公共解析（WG_CLIENT_DNS），否则「握手成功但所有域名解析失败」。
+     白名单模式只有被授权的 /32 进隧道，系统 DNS 走物理网络，不受影响，故不注入。 */
+  const fullTunnel = allowIps.includes('0.0.0.0/0');
+  const dnsLine = (process.env.WG_CLIENT_DNS && fullTunnel)
+    ? `DNS = ${process.env.WG_CLIENT_DNS}\n` : '';
   const conf = `# wg-meta v1 ${meta64}
 [Interface]
 PrivateKey = ${priv}
 Address = ${v.vpn_ip}/24
 MTU = ${process.env.WG_CLIENT_MTU || 1280}
-${process.env.WG_CLIENT_DNS ? `DNS = ${process.env.WG_CLIENT_DNS}\n` : ''}
-[Peer]
+${dnsLine}[Peer]
 PublicKey = ${pub}
 Endpoint = ${ep}
 AllowedIPs = ${allowIps.join(', ')}
@@ -689,7 +695,7 @@ app.get('/api/stats', attach, need('audit', 'r'), async (_req, res) => {
 app.get('/api/gateway/grants', asyncHandler(async (req, res) => {
   if (process.env.INGEST_TOKEN && req.headers['x-ingest-token'] !== process.env.INGEST_TOKEN)
     return res.status(401).json({ error: 'invalid token' });
-  const vs = await q(`SELECT id, name, vpn_ip, mode FROM vpn_account WHERE status=1 ORDER BY id`);
+  const vs = await q(`SELECT id, name, vpn_ip, mode, full_proxy FROM vpn_account WHERE status=1 ORDER BY id`);
   const out = [];
   for (const v of vs) {
     const mode = v.mode === 'deny' ? 'deny' : 'allow';
