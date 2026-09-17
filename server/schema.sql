@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS vpn_account (
   pubkey     VARCHAR(64)  NULL COMMENT 'WireGuard peer 公钥（base64，平台生成）',
   privkey    VARCHAR(255) NULL COMMENT 'WireGuard 私钥：AES-256-GCM 加密存储，明文仅下发配置时解密',
   mode       ENUM('allow','deny') NOT NULL DEFAULT 'allow' COMMENT '授权模式：allow=白名单(默认)，deny=黑名单',
+  full_proxy TINYINT NOT NULL DEFAULT 0 COMMENT '全代理模式：1=开启后该用户全部流量经网关转发（外网走 NAT，内网仍按授权控制）',
   status     TINYINT     NOT NULL DEFAULT 1,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   UNIQUE KEY uk_name (name),

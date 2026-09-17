@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS vpn_account (
   pubkey     TEXT    NULL,
   privkey    TEXT    NULL,
   mode       TEXT    NOT NULL DEFAULT 'allow',
+  full_proxy INTEGER NOT NULL DEFAULT 0 COMMENT '全代理模式：1=该用户全部流量经网关转发（外网走 NAT，内网仍按授权控制）',
   status     INTEGER NOT NULL DEFAULT 1,
   created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now','localtime'))
 );

@@ -244,7 +244,7 @@ app.get('/api/state', attach, auth, async (req, res) => {
     out.packages = ks;
   }
   if (canView(req.user, 'vpn')) {
-    const vs = await q(`SELECT id, name, vpn_ip, note, status, mode, created_at FROM vpn_account ORDER BY id`);
+    const vs = await q(`SELECT id, name, vpn_ip, note, status, mode, full_proxy, created_at FROM vpn_account ORDER BY id`);
     for (const v of vs)
       v.grants = (await q(`SELECT kind, ref_id FROM vpn_grant WHERE vpn_id=?`, [v.id])).map(g => ({ t: g.kind, id: g.ref_id }));
     out.vpn = vs;
@@ -575,7 +575,7 @@ async function grantedDestIps(vpnId) {
 }
 
 app.get('/api/vpn/:id/conf', attach, need('vpn', 'r'), async (req, res) => {
-  const v = await q1(`SELECT name, vpn_ip, privkey, mode FROM vpn_account WHERE id=?`, [Number(req.params.id)]);
+  const v = await q1(`SELECT name, vpn_ip, privkey, mode, full_proxy FROM vpn_account WHERE id=?`, [Number(req.params.id)]);
   if (!v) return res.status(404).json({ error: '用户不存在' });
   const priv = v.privkey ? decKey(v.privkey) : null;
   const pub = serverPub();
@@ -596,6 +596,8 @@ app.get('/api/vpn/:id/conf', attach, need('vpn', 'r'), async (req, res) => {
     // 不再需要手动在 WG_CLIENT_ALLOWED 里列出所有内网段（否则跨子网目标连不通）。
     for (const ip of await grantedDestIps(Number(req.params.id))) allowParts.push(ip + '/32');
   }
+  // 全代理模式：客户端把全部流量送进隧道 —— 内网仍由网关按权限控制，外网经网关 NAT 转发出去
+  if (v.full_proxy) allowParts.push('0.0.0.0/0');
   const _seen = new Set(); const allowIps = [];
   for (const x of allowParts) { if (!_seen.has(x)) { _seen.add(x); allowIps.push(x); } }
 
@@ -619,7 +621,8 @@ app.put('/api/vpn/:id/grants', attach, need('vpn', 'rw'), async (req, res) => {
     return res.status(404).json({ error: '用户不存在' });
   // 模式：allow（白名单，默认）/ deny（黑名单）。前端勾选的目的地在 deny 模式下即为「禁止访问」例外。
   const mode = req.body.mode === 'deny' ? 'deny' : 'allow';
-  await q(`UPDATE vpn_account SET mode=? WHERE id=?`, [mode, id]);
+  const fullProxy = req.body.full_proxy ? 1 : 0;
+  await q(`UPDATE vpn_account SET mode=?, full_proxy=? WHERE id=?`, [mode, fullProxy, id]);
   await q(`DELETE FROM vpn_grant WHERE vpn_id=?`, [id]);
   for (const g of (Array.isArray(req.body.grants) ? req.body.grants : [])) {
     if (g.t !== 'pool' && g.t !== 'pkg') continue;
@@ -704,7 +707,7 @@ app.get('/api/gateway/grants', asyncHandler(async (req, res) => {
           push(arr, await q1(`SELECT ip, port, proto FROM dest_pool WHERE id=?`, [it.pool_id]));
       }
     }
-    out.push({ vpn_ip: v.vpn_ip, name: v.name, mode, allow, deny });
+    out.push({ vpn_ip: v.vpn_ip, name: v.name, mode, full_proxy: v.full_proxy ? 1 : 0, allow, deny });
   }
   res.json({ users: out });
 }));
@@ -754,6 +757,7 @@ async function initDb() {
     if (!cols.includes('pubkey'))  await D.run(`ALTER TABLE vpn_account ADD COLUMN pubkey  VARCHAR(64)  NULL`);
     if (!cols.includes('privkey')) await D.run(`ALTER TABLE vpn_account ADD COLUMN privkey VARCHAR(255) NULL`);
     if (!cols.includes('mode'))    await D.run(`ALTER TABLE vpn_account ADD COLUMN mode VARCHAR(8) NOT NULL DEFAULT 'allow'`);
+    if (!cols.includes('full_proxy')) await D.run(`ALTER TABLE vpn_account ADD COLUMN full_proxy INTEGER NOT NULL DEFAULT 0`);
   } catch (e) { console.error('[WARN] 字段迁移失败：', e.message); }
   /* 不设任何固定默认口令。未配置 ADMIN_INIT_PWD 时，admin 以「口令未设置」状态创建
      （pwd_hash 存空串），首次打开平台会引导在网页上设置口令。

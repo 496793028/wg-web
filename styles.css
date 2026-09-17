@@ -96,6 +96,8 @@ body.theme-light{
 
   /* 黑名单模式（鎏金） */
   --gold:#a9770a; --gold-soft:rgba(169,119,10,.12); --gold-glow:rgba(169,119,10,.32); --gold-line:rgba(169,119,10,.5);
+  /* 全代理模式（绿） */
+  --proxy:#15924f; --proxy-soft:rgba(21,146,79,.12); --proxy-glow:rgba(21,146,79,.3); --proxy-line:rgba(21,146,79,.5);
 }
 
 /* 展开态：Dock 向右增宽、主区同步右移，露出栏目名 */
@@ -294,6 +296,9 @@ body.dock-open .dock-expand svg{transform:rotate(180deg)}
   background:#fff;box-shadow:0 2px 5px rgba(0,0,0,.28);transition:transform .25s var(--ease),background .25s}
 .am-switch.on{background:linear-gradient(135deg,#5b9bff,#2f6bff);border-color:transparent}
 .am-switch.on .am-knob{transform:translateX(18px);background:#fff}
+/* 黑名单开关：鎏金；全代理开关：绿（覆盖默认蓝） */
+.mode-toggle .am-switch.on{background:linear-gradient(135deg,#e6c14f,var(--gold));border-color:transparent}
+.mode-toggle.proxy .am-switch.on{background:linear-gradient(135deg,#2fd07b,#15924f);border-color:transparent}
 
 /* ============ 主内容 ============ */
 .main{position:relative;z-index:6;margin-left:var(--rail);
@@ -347,6 +352,9 @@ body.theme-light .ro-bar{color:#9a6b00}
 .tag.more{color:var(--dim)}
 body.theme-light .tag.pool{color:#2f6bff}
 body.theme-light .tag.pkg{color:#6d4dff}
+/* 未选择协议（空协议池）红色胶囊 */
+.tag.proto-empty{border-color:rgba(229,72,77,.4);background:rgba(229,72,77,.12);color:#ff9aa0}
+body.theme-light .tag.proto-empty{color:#d23c41;background:rgba(229,72,77,.10);border-color:rgba(229,72,77,.32)}
 .empty-mini{color:var(--faint);font-size:12px;font-style:italic}
 
 /* ============ 表格 ============ */
@@ -372,6 +380,7 @@ tbody tr:last-child td{border-bottom:none}
 /* 协议多选（IP-端口池表单）：可勾选胶囊组件。
    不使用 :has()（兼容性差）—— 勾选状态由 input:checked+Sibling 管方块、JS 管 .on 管外壳。 */
 .proto-chks{display:flex;gap:10px;flex-wrap:wrap}
+.proto-preview{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .proto-chk{position:relative;display:inline-flex;align-items:center;gap:9px;padding:10px 16px;
   border:1px solid var(--line);border-radius:13px;background:var(--input-bg);cursor:pointer;user-select:none;
   transition:transform .16s var(--ease),border-color .2s,background .25s,box-shadow .25s}
@@ -633,6 +642,11 @@ body.theme-light .crop-stage{background:#e9edf3}
 .crop-hint{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:11.5px;
   color:rgba(255,255,255,.85);text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none}
 
+/* ============ 全代理模式（绿） ============ */
+.ucard.proxy{border-color:var(--proxy-line);
+  box-shadow:0 0 0 1px var(--proxy-line) inset, 0 0 22px var(--proxy-glow), var(--elev)}
+.ucard.proxy:hover{border-color:var(--proxy-line);
+  box-shadow:0 0 0 1px var(--proxy-line) inset, 0 0 30px var(--proxy-glow), 0 16px 34px -20px rgba(0,0,0,.8)}
 /* ============ 黑名单模式（鎏金） ============ */
 .ucard.black{border-color:var(--gold-line);
   box-shadow:0 0 0 1px var(--gold-line) inset, 0 0 22px var(--gold-glow), var(--elev)}
@@ -641,21 +655,44 @@ body.theme-light .crop-stage{background:#e9edf3}
 /* 批量选择态优先于黑名单鎏金样式：金色卡片被选中时同样去掉金色，与普通卡片选中样式完全一致 */
 .ucard.black.pick, .ucard.black.pick:hover{border-color:var(--accent);
   box-shadow:0 0 0 1px var(--accent) inset}
-.mode-badge{flex:none;display:inline-flex;align-items:center;font-size:10.5px;font-weight:600;padding:2px 9px;border-radius:999px;
+/* 批量选择态优先于全代理蓝色样式：选中时统一改为强调色描边 */
+.ucard.proxy.pick, .ucard.proxy.pick:hover{border-color:var(--accent);
+  box-shadow:0 0 0 1px var(--accent) inset}
+/* 模式徽标尺寸与「正常」胶囊(.badge)保持一致 */
+.mode-badge{flex:none;display:inline-flex;align-items:center;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;
   background:var(--gold-soft);border:1px solid var(--gold-line);color:var(--gold);letter-spacing:.3px}
+.mode-badge.proxy{background:var(--proxy-soft);border-color:var(--proxy-line);color:var(--proxy)}
 /* 黑名单徽标叠在「正常」徽标正上方（卡片右下角竖向排列） */
 .ucard-ft .ft-meta{display:inline-flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
 .mode-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;margin-bottom:14px;
   background:var(--panel2);border:1px solid var(--line);border-radius:13px;cursor:pointer;transition:border-color .2s,background .2s}
 .mode-toggle:hover{border-color:var(--gold-line)}
 .mode-toggle.on{border-color:var(--gold-line);background:var(--gold-soft);box-shadow:inset 0 0 0 1px var(--gold-line)}
+.mode-toggle.proxy:hover{border-color:rgba(47,107,255,.5)}
+.mode-toggle.proxy.on{border-color:rgba(47,107,255,.5);background:rgba(47,107,255,.10);box-shadow:inset 0 0 0 1px rgba(47,107,255,.5)}
 .mt-left{min-width:0}
 .mt-title{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:7px}
 .mt-sub{font-size:11.5px;color:var(--dim);margin-top:3px;line-height:1.5}
 .drawer.black{box-shadow:0 0 0 1px var(--gold-line), 0 0 28px var(--gold-glow), var(--card-shadow)}
+/* 全代理（绿）光晕：仅开全代理时，抽屉外圈为绿色光晕 */
+.drawer.proxy{box-shadow:0 0 0 1px var(--proxy-line), 0 0 28px var(--proxy-glow), var(--card-shadow)}
+/* 全代理 + 黑名单 同时开启：外圈光晕在鎏金↔绿之间缓慢来回渐变 */
+@keyframes halo-osc-card{
+  0%,100%{ border-color:var(--gold-line);
+    box-shadow:0 0 0 1px var(--gold-line) inset, 0 0 22px var(--gold-glow), var(--elev); }
+  50%{ border-color:var(--proxy-line);
+    box-shadow:0 0 0 1px var(--proxy-line) inset, 0 0 22px var(--proxy-glow), var(--elev); }
+}
+@keyframes halo-osc-drawer{
+  0%,100%{ box-shadow:0 0 0 1px var(--gold-line), 0 0 28px var(--gold-glow), var(--card-shadow); }
+  50%{ box-shadow:0 0 0 1px var(--proxy-line), 0 0 28px var(--proxy-glow), var(--card-shadow); }
+}
+.ucard.black.proxy{ animation:halo-osc-card 4s ease-in-out infinite; }
+.drawer.black.proxy{ animation:halo-osc-drawer 4s ease-in-out infinite; }
 .blk-hint{margin-bottom:14px;padding:11px 13px;border-radius:12px;
   background:var(--gold-soft);border:1px solid var(--gold-line);color:var(--gold);font-size:12.5px;line-height:1.6}
 .blk-hint b{color:inherit;font-weight:600;font-size:inherit;line-height:inherit;vertical-align:baseline}
+.proxy-hint{background:var(--proxy-soft);border-color:var(--proxy-line);color:var(--proxy)}
 /* 二次确认（需输入「确认」） */
 .danger-modal{border-color:rgba(244,99,107,.4)}
 .warn-box{margin:0 0 14px;padding:12px 14px;border-radius:12px;
@@ -663,6 +700,28 @@ body.theme-light .crop-stage{background:#e9edf3}
 .warn-box b{font-weight:600;font-size:inherit;line-height:inherit;vertical-align:baseline}
 body.theme-light .warn-box{color:#c0392b}
 .cfm-input{letter-spacing:3px;text-align:center;font-weight:600;font-size:15px}
+
+/* ============ 未保存 / 校验 交互 ============ */
+/* 已修改输入框：黄色光晕（提示存在未保存改动）；保存或关闭后随弹层销毁而消失 */
+.field input.modified, .field select.modified, .field textarea.modified{
+  border-color:var(--warn); box-shadow:0 0 0 3px rgba(245,181,68,.30); }
+body.theme-light .field input.modified, body.theme-light .field select.modified, body.theme-light .field textarea.modified{
+  border-color:#c9800a; box-shadow:0 0 0 3px rgba(201,128,10,.22); }
+/* 校验失败输入框：红色光晕 */
+.field input.err, .field select.err, .field textarea.err, .field .proto-chks.err{
+  border-color:var(--danger); box-shadow:0 0 0 3px rgba(229,72,77,.28); }
+/* 校验失败原因：始终预留高度，避免弹层抖动 */
+.field-err{ min-height:15px; margin-top:6px; font-size:11.5px; line-height:1.4; color:var(--danger); }
+/* 轻微晃动提示（未保存点外 / 校验失败） */
+@keyframes wg-shake{ 0%,100%{transform:translateX(0)} 18%{transform:translateX(-6px)} 36%{transform:translateX(6px)}
+  54%{transform:translateX(-4px)} 72%{transform:translateX(4px)} 88%{transform:translateX(-2px)} }
+.shake{ animation:wg-shake .42s ease-in-out; }
+/* 未保存提示条 */
+.unsaved-bar{ display:flex; align-items:center; gap:10px; margin-bottom:14px; padding:10px 13px; border-radius:12px;
+  background:rgba(245,181,68,.10); border:1px solid rgba(245,181,68,.34); font-size:12.5px; color:#caa24a; line-height:1.5; }
+body.theme-light .unsaved-bar{ color:#9a6b00; }
+.unsaved-bar .ub-actions{ margin-left:auto; display:flex; gap:8px; flex:none; }
+.unsaved-bar .btn{ padding:5px 12px; font-size:12.5px; }
 
 /* ============ 长按手势反馈（批量管理） ============
    按下：按压点浮现「蓄力光环」，随长按缓慢放大；达到阈值：光环爆开 + 轻微震动。

@@ -43,6 +43,23 @@ WG_MARK_BEG = '# >>> vpn-ctrl managed'
 WG_MARK_END = '# <<< vpn-ctrl managed'
 
 
+def _internal_nets():
+    """界定「内网」的网段集合（逗号分隔 CIDR），用于全代理模式区分内/外网。
+
+    外网（不在此集合内的目的 IP）在全代理模式下被放行并经网关 NAT 出口；
+    内网目的 IP 依旧受下方 allow/deny 授权约束。可用环境变量 VPN_INTERNAL_NETS
+    覆盖（如 '10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10'）。
+    默认覆盖 RFC1918，适配绝大多数内网部署；若平台纳管的目的地含非 RFC1918 的内网
+    段，请显式设置该变量，否则该段会被误判为「外网」而绕过权限控制。"""
+    raw = (os.environ.get('VPN_INTERNAL_NETS') or '').strip()
+    nets = [x.strip() for x in raw.split(',') if x.strip()] if raw else \
+        ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']
+    return ', '.join(nets)
+
+
+INTERNAL_NETS = _internal_nets()
+
+
 def log(msg):
     sys.stderr.write('[vpn-sync] %s\n' % msg)
     sys.stderr.flush()
@@ -174,9 +191,12 @@ def render_nft(iface, users, log_limit=None):
             n += 1
         else:
             allow = u.get('allow') or []
-            if not allow:
+            # 无授权且非全代理 -> 该用户整体上无任何放行，交由文末默认拒绝处理
+            if not allow and not u.get('full_proxy'):
                 continue
-            L.append('        # %s (%s) allow %d' % (u.get('name', ''), ip, len(allow)))
+            L.append('        # %s (%s) allow %d%s'
+                     % (u.get('name', ''), ip, len(allow),
+                        ' + FULL-PROXY' if u.get('full_proxy') else ''))
             for a in allow:
                 pm = _port_match(a.get('ports', a.get('port', '')))
                 if pm is None:
@@ -187,6 +207,15 @@ def render_nft(iface, users, log_limit=None):
                              'ct state new log prefix "vpn-flow ALLOW "%s accept'
                              % (iface, ip, a.get('ip'), proto, pm, lim))
                     n += 1
+            if u.get('full_proxy'):
+                # 全代理：内网目的地（INTERNAL_NETS 之内）仍受上方 allow 清单约束；
+                # 其余（外网）一律放行，并由网关既有 wg0->WAN masquerade 做 NAT 出口。
+                L.append('        # %s (%s) FULL-PROXY: external (non-internal) accepted+NAT'
+                         % (u.get('name', ''), ip))
+                L.append('        iifname "%s" ip saddr %s ip daddr != { %s } ct state new '
+                         'log prefix "vpn-flow ALLOW "%s accept'
+                         % (iface, ip, INTERNAL_NETS, lim))
+                n += 1
     L.append('')
     L.append('        # ==== default deny: unauthorized new conn, log + drop ====')
     L.append('        iifname "%s" ct state new log prefix "vpn-flow DENY "%s drop' % (iface, lim))

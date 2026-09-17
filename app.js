@@ -756,7 +756,9 @@ function poolCardHTML(p, i, ro){
       <div style="min-width:0"><div class="ucard-name">${esc(p.name)}</div>
         <div class="ucard-ip">${esc(p.ip)}:${esc(portText(p.port))}</div></div></div>
     <div class="ucard-body"><div class="ucard-tags">
-      ${String(p.proto||'TCP').split(',').map(x=>`<span class="tag pool">${esc(x.trim())}</span>`).join('')}
+      ${(p.proto && String(p.proto).trim())
+        ? String(p.proto).split(',').map(x=>`<span class="tag pool">${esc(x.trim())}</span>`).join('')
+        : `<span class="tag proto-empty">未选择协议</span>`}
       <span class="tag">${esc(svcOf(p.port))}</span>
       <span class="tag">${esc(portText(p.port))}</span></div></div>
     <div class="ucard-ft"><span>${esc(p.descr||'无说明')}</span>
@@ -774,23 +776,26 @@ function renderPoolCards(){
   const w = $('#poolGrid'); if(w) w.innerHTML = poolCards(list, !canEdit('dest'));
 }
 function poolForm(id){
-  const p = id ? pool(id) : { name:'', ip:'', port:'', proto:'TCP', descr:'' };
+  const p = id ? pool(id) : { name:'', ip:'', port:'', proto:'', descr:'' };
   const ro = !canEdit('dest');
-  /* 协议多选：同一 IP:端口 可同时按 TCP/UDP 授权 */
-  const ps = String(p.proto||'TCP').split(',').map(s=>s.trim().toUpperCase()).filter(s=>s==='TCP'||s==='UDP');
-  if(!ps.length) ps.push('TCP');
+  /* 协议多选：同一 IP:端口 可同时按 TCP/UDP 授权；默认不预选（至少需勾选一种，保存时校验） */
+  const ps = String(p.proto||'').split(',').map(s=>s.trim().toUpperCase()).filter(s=>s==='TCP'||s==='UDP').filter(Boolean);
   const chk = v => ps.includes(v) ? 'checked' : '';
+  const preview = ps.length
+    ? ps.map(v=>`<span class="tag pool">${v}</span>`).join('')
+    : `<span class="tag proto-empty">未选择协议</span>`;
   return `<div class="field"><label>名称</label><input name="name" value="${esc(p.name)}" ${ro?'disabled':''} placeholder="如：数据库-MySQL"></div>
     <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="10.0.20.5"></div>
     <div class="field"><label>端口或区间，用逗号分隔</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口"></div></div>
-    <div class="field"><label>协议（可多选，同时按所选协议放行）</label>
+    <div class="field"><label>协议（可多选，必须至少勾选一种）</label>
       <div class="proto-chks">
         ${['TCP','UDP'].map(v=>`<label class="proto-chk ${chk(v)?'on':''}${ro?' ro':''}">
           <input type="checkbox" name="proto" value="${v}" ${chk(v)} ${ro?'disabled':''}>
           <span class="pc-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>
           <span class="pc-txt">${v}</span></label>`).join('')}
       </div>
-      <div class="hint">同时勾选 TCP 与 UDP = 同一 IP:端口 两种协议一起放行。</div></div>
+      <div class="proto-preview">${preview}</div>
+      <div class="hint">同时勾选 TCP 与 UDP = 同一 IP:端口 两种协议一起放行；至少需勾选一种协议才能保存。</div></div>
     <div class="field" style="margin-bottom:0"><label>说明</label>
       <input name="descr" value="${esc(p.descr||'')}" ${ro?'disabled':''}></div>`;
 }
@@ -816,8 +821,8 @@ function pkgListHTML(){
 
 /* 用户卡片（外层展示）：黑名单模式显示鎏金边框 + 模式徽标，卡片尺寸不变化 */
 function ucardHTML(v, i){
-  const tags=grantTags(v), n=grantCount(v), black = v.mode==='deny';
-  return `<div class="ucard ${black?'black':''} ${ui.picked.has(String(v.id))?'pick':''}" data-act="vpn-open" data-id="${v.id}"
+  const tags=grantTags(v), n=grantCount(v), black = v.mode==='deny', proxy = v.full_proxy ? true : false;
+  return `<div class="ucard ${black?'black':''} ${proxy?'proxy':''} ${ui.picked.has(String(v.id))?'pick':''}" data-act="vpn-open" data-id="${v.id}"
       data-batchpick="${v.id}" style="animation-delay:${i*40}ms">
     <div class="cbox ucard-pick ${ui.picked.has(String(v.id))?'on':''}" data-act="vpn-pick" data-id="${v.id}">${ui.picked.has(String(v.id))?ICON.check:''}</div>
     <div class="ucard-top"><div class="avatar" style="background:${colorOf(v.name)}">${esc(v.name.slice(0,1))}</div>
@@ -828,6 +833,7 @@ function ucardHTML(v, i){
         : `<span class="empty-mini">${black?'已授权所有目的地访问':'尚未授权任何目的地'}</span>`}</div></div>
     <div class="ucard-ft"><span>${black?`${n} 个禁止例外`:`${n} 个可访问目的地`}</span>
       <div class="ft-meta">
+        ${proxy?`<span class="mode-badge proxy">全代理</span>`:''}
         ${black?`<span class="mode-badge">黑名单</span>`:''}
         <span class="badge ${(v.status===1||v.status==='on')?'ok':''}">${(v.status===1||v.status==='on')?'正常':'停用'}</span>
       </div></div>
@@ -871,9 +877,12 @@ function vpnForm(){
 function openGrant(id){
   const v = vuser(id); if(!v) return;
   ui.editGrants = JSON.parse(JSON.stringify(v.grants)); ui.q.grant='';
+  ui.editVpnId = v.id;
   ui.editMode = v.mode==='deny' ? 'deny' : 'allow';
+  ui.editProxy = v.full_proxy ? 1 : 0;
   const black = ui.editMode==='deny';
-  $('#layer').innerHTML = `<div class="drawer-wrap" data-backdrop><div class="drawer ${black?'black':''}">
+  const proxy = !!ui.editProxy;
+  $('#layer').innerHTML = `<div class="drawer-wrap" data-backdrop><div class="drawer ${black?'black':''} ${proxy?'proxy':''}">
     <div class="drawer-hd"><div style="display:flex;align-items:center;gap:11px">
       <div class="avatar" style="background:${colorOf(v.name)}">${esc(v.name.slice(0,1))}</div>
       <div><div style="font-size:15px;font-weight:600">${esc(v.name)}</div>
@@ -887,6 +896,13 @@ function openGrant(id){
       </div>
       <div class="blk-hint" id="blkHint" style="${black?'':'display:none'}">
         ⚠ 黑名单模式：该用户默认可访问<b>所有网段</b>，下方勾选的目的地将被<b>禁止访问</b>（其余全部放行）。</div>
+      <div class="mode-toggle ${proxy?'on proxy':''}" data-act="proxy-toggle">
+        <div class="mt-left"><div class="mt-title"><span class="mode-badge proxy">全代理</span> 全代理模式</div>
+          <div class="mt-sub">开启后该用户全部流量经本网关转发：外网走 NAT 出口，内网目的地仍按下方授权控制</div></div>
+        <span class="am-switch ${proxy?'on':''}"><span class="am-knob"></span></span>
+      </div>
+      <div class="blk-hint proxy-hint" id="proxyHint" style="${proxy?'':'display:none'}">
+        ⚠ 全代理模式：该用户的<b>全部流量</b>经本网关转发。外网流量走 NAT 出口；内网目的地依旧受下方白/黑名单授权约束（未授权的内网目的地仍会被拒绝）。</div>
       ${sfield('sf_grant','',q=>{ ui.q.grant=q; const l=$('#grantList'); if(l) l.innerHTML=grantListHTML(); },'搜索 IP-端口或目的地包')}
       <div id="grantList" style="margin-top:12px">${grantListHTML()}</div></div>
     <div class="drawer-ft"><div class="left">
@@ -1076,6 +1092,93 @@ function confirmDanger(title, msg, onYes){
   };
 }
 function readForm(){ const o={}; $$('#layer [name]').forEach(e=>o[e.name]=e.value.trim()); return o; }
+/* ---------------- 未保存 / 校验 交互辅助 ---------------- */
+/* 轻微晃动窗体（未保存点外 / 校验失败） */
+function shakeLayer(){
+  const layer=$('#layer'); if(!layer) return;
+  const box=layer.querySelector('.modal, .drawer'); if(!box) return;
+  box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
+  /* 抖动结束即移除：抽屉的「双开渐变光晕」是无限动画，不能长期被 shake 覆盖 */
+  box.addEventListener('animationend', ()=>box.classList.remove('shake'), { once:true });
+}
+/* 清除弹层内所有校验红框与原因文字 */
+function clearErrors(){
+  $$('#layer .field input.err, #layer .field select.err, #layer .field textarea.err, #layer .field .proto-chks.err')
+    .forEach(el=>el.classList.remove('err'));
+  $$('#layer .field-err').forEach(e=>{ e.textContent=''; });
+}
+/* 在某字段（input/select/textarea 或 .proto-chks）上标注校验失败 + 预留原因文字 */
+function setFieldError(el, msg){
+  if(!el) return;
+  el.classList.add('err');
+  const f=el.closest('.field'); if(!f) return;
+  let e=f.querySelector(':scope > .field-err');
+  if(!e){ e=document.createElement('div'); e.className='field-err'; f.appendChild(e); }
+  e.textContent=msg;
+}
+/* 必填校验：返回 true 表示通过；不通过则红框 + 原因 + 晃动并聚焦首个错误项 */
+function validateRequired(items){
+  clearErrors();
+  let ok=true, firstEl=null;
+  for(const it of items){
+    const el=$(`#layer [name="${it.n}"]`); if(!el) continue;
+    if(!(el.value||'').trim()){
+      ok=false;
+      setFieldError(el, it.msg || `${it.label||'该项'}不能为空`);
+      if(!firstEl) firstEl=el;
+    }
+  }
+  if(!ok){ shakeLayer(); if(firstEl) firstEl.focus(); }
+  return ok;
+}
+/* 协议未勾选：在 .proto-chks 上标红 + 原因 */
+function protoError(msg){
+  const wrap=$('#layer .proto-chks');
+  setFieldError(wrap, msg);
+  shakeLayer();
+}
+/* 同步 IP-端口池协议预览胶囊（勾选变化时实时更新） */
+function syncProtoPreview(){
+  const wrap=document.getElementById('protoPreview'); if(!wrap) return;
+  const checked=$$('#layer input[name="proto"]:checked').map(x=>x.value);
+  wrap.innerHTML = checked.length
+    ? checked.map(v=>`<span class="tag pool">${esc(v)}</span>`).join('')
+    : `<span class="tag proto-empty">未选择协议</span>`;
+  const chks=document.querySelector('#layer .proto-chks');
+  if(chks){ chks.classList.remove('err'); const f=chks.closest('.field');
+    if(f){ const e=f.querySelector(':scope > .field-err'); if(e) e.textContent=''; } }
+}
+/* 输入框被改动：标黄（未保存）+ 顺手清掉该字段的校验红框 */
+function onLayerInput(el){
+  if(!el || !el.closest || !el.closest('#layer')) return;
+  if(!el.matches('input,select,textarea')) return;
+  const f=el.closest('.field'); if(!f) return;
+  el.classList.add('modified');
+  el.classList.remove('err');
+  const e=f.querySelector(':scope > .field-err'); if(e) e.textContent='';
+}
+/* 点遮罩关闭时被「未保存改动」拦截：提示是否保存 + 晃动 */
+function showUnsavedBar(){
+  const layer=$('#layer'); if(!layer) return;
+  if(layer.querySelector('.unsaved-bar')) return;
+  const body=layer.querySelector('.modal-bd') || layer.querySelector('.drawer-bd');
+  if(!body) return;
+  const bar=document.createElement('div');
+  bar.className='unsaved-bar';
+  bar.innerHTML=`<span>⚠ 有未保存的修改，是否保存？</span>
+    <span class="ub-actions">
+      <button class="btn sm" data-ub="edit">继续编辑</button>
+      <button class="btn sm danger" data-ub="discard">放弃并关闭</button>
+      <button class="btn sm primary" data-ub="save">保存修改</button></span>`;
+  body.insertBefore(bar, body.firstChild);
+  bar.querySelector('[data-ub="edit"]').onclick=()=>bar.remove();
+  bar.querySelector('[data-ub="discard"]').onclick=()=>closeLayer();
+  bar.querySelector('[data-ub="save"]').onclick=()=>{
+    const ok=layer.querySelector('.modal [data-ok]') || layer.querySelector('[data-act="grant-save"]');
+    if(ok) ok.click();   // 复用既有保存逻辑（含校验，校验失败会就地显示红框）
+  };
+  shakeLayer();
+}
 /* 密码输入框（带「显示/隐藏」眼睛按钮）。opts: {ac,ph,val,hint,last} */
 function pwField(label, name, opts){
   opts = opts || {};
@@ -1097,6 +1200,23 @@ function bindSeg(){ $$('#layer .seg').forEach(s=>s.querySelectorAll('button').fo
   b.onclick=()=>{ s.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); }; })); }
 
 /* ---------------- 事件 ---------------- */
+/* 黑名单开关视觉同步（不重置已勾选目的地） */
+function setModeToggle(black){
+  const el = document.querySelector('.mode-toggle');
+  if(el){ el.classList.toggle('on', black);
+    const sw = el.querySelector('.am-switch'); if(sw) sw.classList.toggle('on', black); }
+  const hint = document.getElementById('blkHint'); if(hint) hint.style.display = black ? '' : 'none';
+  const l = document.getElementById('grantList'); if(l) l.innerHTML = grantListHTML();
+  const dr = document.querySelector('.drawer'); if(dr) dr.classList.toggle('black', black);
+}
+/* 全代理开关视觉同步 */
+function setProxyToggle(on){
+  const el = document.querySelector('[data-act="proxy-toggle"]');
+  if(el){ el.classList.toggle('on', on); el.classList.toggle('proxy', on);
+    const sw = el.querySelector('.am-switch'); if(sw) sw.classList.toggle('on', on); }
+  const hint = document.getElementById('proxyHint'); if(hint) hint.style.display = on ? '' : 'none';
+}
+
 const ACT = {
   nav: el=>{ const k=el.dataset.k, sel=el.dataset.sel||el.dataset.k;
     document.getElementById('avatarMenu')?.remove();
@@ -1212,16 +1332,20 @@ const ACT = {
       refresh(); toast('已删除'); }); },
   /* 目的地 */
   'pool-new': ()=> modal({title:'新增 IP-端口', body:poolForm(null), onOk: async ()=>{
-      const g=readForm(); if(!g.name||!g.ip){ toast('名称与 IP 必填（端口留空=所有端口）','err'); return false; }
+      if(!validateRequired([{n:'name',label:'名称'},{n:'ip',label:'IP 地址'}])) return false;
       const protos=$$('#layer input[name="proto"]:checked').map(x=>x.value);
-      await api('POST','pools',{...g,proto:protos.join(',')||'TCP'}); await loadState();
+      if(!protos.length){ protoError('请至少勾选一种协议（TCP 或 UDP）'); return false; }
+      const g=readForm();
+      await api('POST','pools',{...g,proto:protos.join(',')}); await loadState();
       refresh(); toast('已添加'); }}),
   'pool-edit': el=>{ const p=pool(el.dataset.id);
     modal({title:'编辑 IP-端口', body:poolForm(p.id), onOk: async ()=>{
       if(!canEdit('dest')) return;
-      const g=readForm();
+      if(!validateRequired([{n:'name',label:'名称'},{n:'ip',label:'IP 地址'}])) return false;
       const protos=$$('#layer input[name="proto"]:checked').map(x=>x.value);
-      await api('PUT','pools/'+p.id,{...g,proto:protos.join(',')||p.proto}); await loadState();
+      if(!protos.length){ protoError('请至少勾选一种协议（TCP 或 UDP）'); return false; }
+      const g=readForm();
+      await api('PUT','pools/'+p.id,{...g,proto:protos.join(',')}); await loadState();
       refresh(); toast('已保存'); }}); },
   'pool-del': el=>{ const p=pool(el.dataset.id);
     confirmBox('删除 IP-端口',`确定删除 <b>${esc(p.name)}</b>（${esc(p.ip)}:${esc(portText(p.port))}）吗？引用它的包会同步移除。`, async ()=>{
@@ -1240,12 +1364,14 @@ const ACT = {
       ui.picked.clear(); ui.batch=false; refresh(); toast(`已删除 ${ids.length} 个目的地`); }); },
   'pkg-new': ()=>{ window.__pkgSel=[]; ui.q.pkg='';
     modal({title:'新增目的地包', wide:true, body:pkgForm(null), onOk: async ()=>{
-      const g=readForm(); if(!g.name){ toast('包名称必填','err'); return false; }
+      if(!validateRequired([{n:'name',label:'包名称'}])) return false;
+      const g=readForm();
       await api('POST','packages',{...g,poolIds:window.__pkgSel}); await loadState();
       refresh(); toast('已创建'); }}); },
   'pkg-edit': el=>{ const k=pkg(el.dataset.id); window.__pkgSel=[...k.poolIds]; ui.q.pkg='';
     modal({title:`管理目的地包 — ${k.name}`, wide:true, body:pkgForm(k.id), onOk: async ()=>{
       if(!canEdit('dest')) return;
+      if(!validateRequired([{n:'name',label:'包名称'}])) return false;
       const g=readForm();
       await api('PUT','packages/'+k.id,{...g,poolIds:window.__pkgSel}); await loadState();
       refresh(); toast('已保存'); }}); },
@@ -1260,7 +1386,8 @@ const ACT = {
 
   /* VPN */
   'vpn-new': ()=> modal({title:'新增 VPN 用户', body:vpnForm(), onOk: async ()=>{
-      const g=readForm(); if(!g.name){ toast('请输入真实姓名','err'); return false; }
+      if(!validateRequired([{n:'name',label:'真实姓名'}])) return false;
+      const g=readForm();
       const r=await api('POST','vpn',g); await loadState();
       /* 新用户还没有任何授权 → AllowedIPs 里为空，此刻弹出的 conf 只要一配地址就作废了，
          所以创建时不再弹配置页；改为提示去卡片里配置目的地（配好并保存时由 grant-save 按需弹 conf）。 */
@@ -1287,40 +1414,49 @@ const ACT = {
     i>=0 ? ui.editGrants.splice(i,1) : ui.editGrants.push({t,id});
     const l=$('#grantList'); if(l) l.innerHTML=grantListHTML(); },
   'grant-clear': ()=>{ ui.editGrants=[]; const l=$('#grantList'); if(l) l.innerHTML=grantListHTML(); },
-  /* 抽屉内「黑名单模式」开关：仅切换 ui.editMode 并就地刷新，不重置已勾选的目的地 */
+  /* 抽屉内「黑名单模式」开关：打开时二次确认，确认后才真正开启（保存时不再确认） */
   'mode-toggle': ()=>{
-    ui.editMode = ui.editMode==='deny' ? 'allow' : 'deny';
-    const black = ui.editMode==='deny';
-    const el = document.querySelector('.mode-toggle');
-    if(el){ el.classList.toggle('on', black);
-      const sw = el.querySelector('.am-switch'); if(sw) sw.classList.toggle('on', black); }
-    const hint = document.getElementById('blkHint'); if(hint) hint.style.display = black ? '' : 'none';
-    const l = document.getElementById('grantList'); if(l) l.innerHTML = grantListHTML();
-    const dr = document.querySelector('.drawer'); if(dr) dr.classList.toggle('black', black);
+    const cur = ui.editMode==='deny';
+    if(!cur){
+      const v = vuser(ui.editVpnId);
+      confirmDanger('确认开启黑名单模式？',
+        `即将把 <b>${esc(v?v.name:'')}</b> 设为<b>黑名单模式</b>：该用户默认<b>放行全部网段</b>，仅下方勾选的目的地会被<b>禁止访问</b>。保存后此变更会立即下发到网关，请确认无误。`,
+        ()=>{ ui.editMode='deny'; setModeToggle(true); });
+    } else {
+      ui.editMode='allow'; setModeToggle(false);
+    }
+  },
+  /* 抽屉内「全代理模式」开关：打开时二次确认，确认后才真正开启（保存时不再确认） */
+  'proxy-toggle': ()=>{
+    const cur = !!ui.editProxy;
+    if(!cur){
+      const v = vuser(ui.editVpnId);
+      confirmDanger('确认开启全代理模式？',
+        `即将为 <b>${esc(v?v.name:'')}</b> 开启<b>全代理</b>：该用户的<b>全部流量</b>将经本网关转发——外网走 NAT 出口，内网目的地仍按下方白/黑名单授权控制。保存后此变更会随配置下发到客户端与网关，请确认无误。`,
+        ()=>{ ui.editProxy=1; setProxyToggle(true); });
+    } else {
+      ui.editProxy=0; setProxyToggle(false);
+    }
   },
   'grant-save': el=>{ const v=vuser(el.dataset.id);
-    const before = { mode: v.mode, sig: grantSig(v.grants) };
+    const before = { mode: v.mode, fp: v.full_proxy ? 1 : 0, sig: grantSig(v.grants) };
     const save = async ()=>{
-      await api('PUT',`vpn/${v.id}/grants`,{grants:ui.editGrants, mode:ui.editMode});
+      await api('PUT',`vpn/${v.id}/grants`,{grants:ui.editGrants, mode:ui.editMode, full_proxy: ui.editProxy ? 1 : 0});
       await loadState(); closeLayer(); refresh();
       const after = vuser(v.id);
-      const changed = before.mode !== after.mode || before.sig !== grantSig(after.grants);
+      const changed = before.mode !== after.mode || before.fp !== (after.full_proxy ? 1 : 0) || before.sig !== grantSig(after.grants);
       if(changed){
-        // 授权模式或目的地变化会导致客户端 AllowedIPs 变化，弹出配置页提示重新下载（类比新增用户）
-        showVpnConf(v.id, '授权模式或目的地已变更，客户端 AllowedIPs 随之变化。请重新下载上面的配置并导入客户端（旧配置不会自动更新）。');
+        // 授权模式 / 全代理状态 / 目的地变化都会使客户端 AllowedIPs 变化，弹出配置页提示重新下载（类比新增用户）
+        showVpnConf(v.id, '授权模式、全代理状态或目的地已变更，客户端 AllowedIPs 随之变化。请重新下载上面的配置并导入客户端（旧配置不会自动更新）。');
       } else {
-        toast(ui.editMode==='deny'
-          ? `已启用黑名单模式：${v.name} 默认放行全部网段，${grantCount(after)} 个目的地被禁止`
-          : `已保存，${v.name} 可访问 ${grantCount(after)} 个目的地`);
+        const bits = [];
+        if(after.full_proxy) bits.push('全代理');
+        if(after.mode==='deny') bits.push(`黑名单（${grantCount(after)} 个禁止例外）`);
+        else bits.push(`可访问 ${grantCount(after)} 个目的地`);
+        toast(`已保存，${v.name} · ${bits.join(' · ')}`);
       }
     };
-    if(ui.editMode==='deny'){
-      confirmDanger('确认提交黑名单模式？',
-        `即将把 <b>${esc(v.name)}</b> 设为<b>黑名单模式</b>：该用户默认<b>放行全部网段</b>，仅勾选的 ${ui.editGrants.length} 个目的地会被<b>禁止访问</b>。此变更会立即下发到网关，请确认无误。`,
-        save);
-    } else {
-      save().catch(e=>toast(e.message,'err'));
-    }
+    save().catch(e=>toast(e.message,'err'));
   },
 };
 
@@ -1380,7 +1516,7 @@ document.addEventListener('click', e=>{
   if(e.target.closest('[data-close]')) return closeLayer();
   if(e.target.matches('[data-backdrop]')){
     /* 内容「真的被改过」（与打开时的快照不同）才阻止点周围关闭；没改过 → 允许点周围关闭 */
-    if(layerSig0!==null && layerSig()!==layerSig0) return;
+    if(layerSig0!==null && layerSig()!==layerSig0){ shakeLayer(); showUnsavedBar(); return; }
     if(isMobile() && layerHasUnsavedInput()) return;
     return closeLayer();
   }
@@ -1408,9 +1544,12 @@ document.addEventListener('click', e=>{
 document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeCombos(); closeLayer(); } });
 /* 协议勾选胶囊：勾选状态同步到外壳 .on（外壳高亮不用 :has()，兼容所有浏览器） */
 document.addEventListener('change', e=>{
-  const i=e.target.closest('.proto-chk input'); if(!i) return;
-  i.closest('.proto-chk')?.classList.toggle('on', i.checked);
+  const i=e.target.closest('.proto-chk input');
+  if(i){ i.closest('.proto-chk')?.classList.toggle('on', i.checked); syncProtoPreview(); return; }
+  onLayerInput(e.target);
 });
+/* 文本框输入：标记未保存改动（黄色光晕）+ 顺手清掉该字段的校验红框 */
+document.addEventListener('input', e=> onLayerInput(e.target));
 
 /* ---------------- 启动 ---------------- */
 (async ()=>{
