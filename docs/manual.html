@@ -60,12 +60,13 @@ ul li b{color:var(--txt)}
     <span class="badge">Node.js · Express</span><span class="badge">WireGuard</span>
     <span class="badge">零前端框架 · 单文件 app.js</span><span class="badge">深 / 浅双主题</span>
     <span class="badge">SQLite / MySQL 双方言</span>
+    <span class="badge">配套客户端 wg-companion</span>
   </div>
 </header>
 
 <nav>
   <a href="#overview">概览</a><a href="#features">特性</a><a href="#desktop">桌面端</a>
-  <a href="#mobile">移动端</a><a href="#flow">授权流程</a><a href="#deploy">快速部署</a><a href="#security">安全设计</a>
+  <a href="#mobile">移动端</a><a href="#flow">授权流程</a><a href="#companion">配套客户端</a><a href="#deploy">快速部署</a><a href="#security">安全设计</a>
 </nav>
 
 <section id="overview">
@@ -85,6 +86,8 @@ ul li b{color:var(--txt)}
   <div class="grid">
     <div class="card"><b>🗂 卡片式管理</b><p>VPN 用户、IP-端口池、目的地包全部以卡片呈现：头像、状态、授权数量一眼可见，点整卡即进入编辑，右下角保留删除。</p></div>
     <div class="card"><b>🖱 可视化授权</b><p>打开用户抽屉，勾选目的地或整个目的地包即可授权；切换「白名单 / 黑名单」模式时，勾选含义自动反转并给出醒目提示。</p></div>
+    <div class="card"><b>🌐 黑名单 + 全代理</b><p>每用户可叠加开启：黑名单（默认放行、勾选即禁止，鎏金徽标）与全代理（全部流量经网关转发、外网走 NAT，淡紫徽标）；双开时卡片光晕在两色间缓慢共振。</p></div>
+    <div class="card"><b>🛡 就地校验</b><p>提交时对必填、IP 格式、端口格式（单端口 / 区间 / 多段，与服务端同规则）逐项校验：失败项红光晕 + 下方原因 + 轻微晃动；编辑过程不打扰，点外部未保存才弹提示拦截。</p></div>
     <div class="card"><b>✋ 长按批量管理</b><p>移动端长按任意卡片即进入批量管理并勾选该条，配合蓄力光环动画；未再改动勾选时，点空白处可直接退出。</p></div>
     <div class="card"><b>🎛 协议多选</b><p>IP-端口条目的 TCP / UDP 可同时勾选，网关按协议逐条生成放行规则，一次授权两种协议一起生效。</p></div>
     <div class="card"><b>📱 竖屏自适应</b><p>侧栏自动收为底部导航（滑动高亮），表格与卡片按屏宽切换形态，长按、点选、滑动都有对应动效。</p></div>
@@ -120,11 +123,23 @@ ul li b{color:var(--txt)}
     <li><b>① 建目的地</b> —— 在「IP-端口池」新增一张卡片：<code>名称 + IP + 端口 + 协议</code>（TCP/UDP 可同时勾选）。</li>
     <li><b>② 组目的地包</b> —— 把多条目的地组合成一个「目的地包」，例如「研发常用」「运维必备」。</li>
     <li><b>③ 建 VPN 用户</b> —— 新增用户即生成密钥对并分配 VPN 地址；此时不需要下载配置。</li>
-    <li><b>④ 点卡片授权</b> —— 打开用户抽屉，勾选目的地/目的地包，保存；黑名单模式下勾选的变成「禁止项」。</li>
-    <li><b>⑤ 下载配置</b> —— 授权变化后会提示重新下载 <code>.conf</code>；文件名与内容均为纯 ASCII，可直接导入客户端。</li>
+    <li><b>④ 点卡片授权</b> —— 打开用户抽屉，勾选目的地/目的地包，保存；黑名单模式下勾选的变成「禁止项」；也可叠加开启全代理（全部流量经网关转发）。</li>
+    <li><b>⑤ 下载配置</b> —— 授权变化后会提示重新下载 <code>.conf</code>；文件名与内容均为纯 ASCII，可直接导入客户端。配置首行内嵌 <code>wg-meta</code> 元数据（姓名 / 模式 / 网段），标准客户端完全兼容。</li>
     <li><b>⑥ 网关自动生效</b> —— 网关代理按最新授权生成 nftables 规则（按协议逐条放行），客户端 AllowedIPs 同步更新。</li>
   </ul>
-  <div class="tip"><b>小提示</b>：长按任意卡片可快速进入批量管理；编辑弹窗在有未保存修改时，点击周围不会意外关闭。</div>
+  <div class="tip"><b>小提示</b>：长按任意卡片可快速进入批量管理；编辑弹窗在有未保存修改时，点击周围不会意外关闭——改过的输入框会标黄并提示，再次点外部即放弃修改。若配置含中文姓名，请使用下方配套客户端导入。</div>
+</section>
+
+<section id="companion">
+  <h2>配套客户端<em>WG COMPANION</em></h2>
+  <p>平台配套的独立客户端 <b><a href="https://github.com/496793028/wg-companion" style="color:var(--accent)">wg-companion</a></b>
+     （<b>Windows / macOS / Android</b>），把「重新下载配置 → 导入 → 开关隧道」收敛成一件事：</p>
+  <ul>
+    <li><b>导入即识别</b> —— 解析配置内嵌的 <code>wg-meta</code>：界面显示<b>真实姓名、授权模式徽章（白名单 · 黑名单 · 全代理）与被授权网段</b>。</li>
+    <li><b>一键开关隧道</b> —— 无需打开 WireGuard 官方程序：Windows 走官方 <code>wireguard.exe</code> 服务化接口（随系统自启）、macOS 走 <code>wg-quick</code>、Android 内嵌官方 GoBackend。</li>
+    <li><b>自动更新配置</b> —— 权限变更后重新下载同名配置覆盖，客户端自动感知并在隧道在线时自动重下发。</li>
+    <li><b>同源设计语言</b> —— 淡紫 × 鎏金、卡片与徽章、启动 / 点击 / 连接全套动画。</li>
+  </ul>
 </section>
 
 <section id="deploy">

@@ -602,7 +602,14 @@ app.get('/api/vpn/:id/conf', attach, need('vpn', 'r'), async (req, res) => {
   for (const x of allowParts) { if (!_seen.has(x)) { _seen.add(x); allowIps.push(x); } }
 
   /* 客户端 .conf 必须是纯 ASCII：含中文会导致 WireGuard 客户端导入失败（兜底再滤一次） */
-  const conf = `[Interface]
+  /* 附带 wg-meta 元数据注释（base64 UTF-8，保持 ASCII）：配套客户端 wg-companion
+     解析后在界面显示真实姓名 / 授权模式（白名单·黑名单·全代理）/ 被授权网段；
+   标准客户端按注释行忽略，不受影响。 */
+  const meta64 = Buffer.from(JSON.stringify({
+    v: 1, name: v.name, mode, proxy: v.full_proxy ? 1 : 0, nets: allowIps
+  }), 'utf8').toString('base64');
+  const conf = `# wg-meta v1 ${meta64}
+[Interface]
 PrivateKey = ${priv}
 Address = ${v.vpn_ip}/24
 MTU = ${process.env.WG_CLIENT_MTU || 1280}
