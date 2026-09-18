@@ -84,7 +84,11 @@ CREATE TABLE IF NOT EXISTS dest_package_item (
 );
 CREATE INDEX IF NOT EXISTS idx_item_pool ON dest_package_item(pool_id);
 
--- ---------- 5. VPN 账号（按真实姓名）----------
+-- ---------- 5. VPN 账号（按真实姓名；同时承载 WireGuard 配置与客户端登录凭据，二者一一绑定）----------
+--   注意：SQLite 不支持列内联 COMMENT，注释一律写成 -- 行注释，勿加 COMMENT 关键字。
+--   full_proxy   1=该用户全部流量经网关转发（外网走 NAT，内网仍按授权控制）
+--   login_enabled 客户端登录启用：1=启用（姓名+口令登录），0=未启用（口令可为空）
+--   pwd_enc       客户端登录口令：AES-256-GCM 加密存储。需可回显（管理员查看 / 随配置交付本人），故不用单向散列
 CREATE TABLE IF NOT EXISTS vpn_account (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT    NOT NULL,
@@ -93,8 +97,12 @@ CREATE TABLE IF NOT EXISTS vpn_account (
   pubkey     TEXT    NULL,
   privkey    TEXT    NULL,
   mode       TEXT    NOT NULL DEFAULT 'allow',
-  full_proxy INTEGER NOT NULL DEFAULT 0 COMMENT '全代理模式：1=该用户全部流量经网关转发（外网走 NAT，内网仍按授权控制）',
+  full_proxy INTEGER NOT NULL DEFAULT 0,
   status     INTEGER NOT NULL DEFAULT 1,
+  login_enabled INTEGER NOT NULL DEFAULT 0,
+  pwd_enc    TEXT    NULL,
+  last_login_at TEXT NULL,
+  last_login_ip TEXT NULL,
   created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now','localtime'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uk_vpn_name ON vpn_account(name);

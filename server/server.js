@@ -57,10 +57,10 @@ app.use('/uploads/avatars', express.static(UPLOAD_DIR, {
 }));
 const ipOf = r => (r.headers['x-forwarded-for'] || '').split(',')[0].trim() || r.ip || '';
 
-/* CSRF：写请求必须带自定义头（登录与网关推送除外） */
+/* CSRF：写请求必须带自定义头（登录与网关推送除外；客户端登录来自原生客户端，同样豁免） */
 app.use((req, res, next) => {
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method) &&
-      !/^\/api\/(auth\/login|ingest)/.test(req.path)) {
+      !/^\/api\/(auth\/login|ingest|client\/login)/.test(req.path)) {
     if (req.headers['x-requested-with'] !== 'fetch')
       return res.status(400).json({ error: '缺少安全请求头' });
   }
@@ -244,7 +244,10 @@ app.get('/api/state', attach, auth, async (req, res) => {
     out.packages = ks;
   }
   if (canView(req.user, 'vpn')) {
-    const vs = await q(`SELECT id, name, vpn_ip, note, status, mode, full_proxy, created_at FROM vpn_account ORDER BY id`);
+    const vs = await q(`SELECT id, name, vpn_ip, note, status, mode, full_proxy, login_enabled,
+        last_login_at, last_login_ip, created_at,
+        CASE WHEN pwd_enc IS NULL OR pwd_enc='' THEN 0 ELSE 1 END AS has_pwd
+      FROM vpn_account ORDER BY id`);
     for (const v of vs)
       v.grants = (await q(`SELECT kind, ref_id FROM vpn_grant WHERE vpn_id=?`, [v.id])).map(g => ({ t: g.kind, id: g.ref_id }));
     out.vpn = vs;
@@ -511,6 +514,35 @@ function serverPub() {
   return '';
 }
 
+/* ---------------- VPN 账号登录凭据 ----------------
+ * 「VPN 账号」与「VPN 配置」是同一条 vpn_account 记录（一一绑定）：
+ * 删除任一方即删除整行 —— 账号与其 WireGuard 配置、授权一并消失。
+ *   未启用（login_enabled=0）：口令可为空，客户端无法登录；
+ *   启用  （login_enabled=1）：必须有口令；未提供则自动生成并回传，供管理员转交本人。
+ * 用户名 = vpn_account.name（与 VPN 配置的用户名绑定，即同一字段）。 */
+function randVpnPwd() {
+  /* 12 位，必含大写/小写/数字；剔除易混淆字符 0 O 1 l I */
+  const U = 'ABCDEFGHJKLMNPQRSTUVWXYZ', L = 'abcdefghijkmnpqrstuvwxyz', D = '23456789';
+  const all = U + L + D, pick = s => s[crypto.randomInt(s.length)];
+  const a = [pick(U), pick(L), pick(D)];
+  while (a.length < 12) a.push(pick(all));
+  for (let i = a.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [a[i], a[j]] = [a[j], a[i]]; }
+  return a.join('');
+}
+const VPN_PWD_MIN = 6;
+const vpnPwdPolicy = p => (typeof p === 'string' && p.length >= VPN_PWD_MIN) ? null : `密码长度至少 ${VPN_PWD_MIN} 位`;
+/** 校验登录口令：解密后恒定时间比较。
+ *  口令必须可回显（管理员查看、随配置交付本人），因此用可逆的 AES-256-GCM 存储，
+ *  而非单向散列 —— 与 WireGuard 私钥同一套主密钥（.wgkey / WG_KEY_SECRET）与处理原则。 */
+function vpnPwdVerify(pw, enc) {
+  const plain = decKey(enc);
+  if (plain == null) return false;
+  const a = Buffer.from(String(pw), 'utf8'), b = Buffer.from(plain, 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+/** 读取账号明文口令（仅供管理员查看 / 随配置交付）；未设置返回 '' */
+function vpnPwdOf(enc) { const p = enc ? decKey(enc) : null; return p == null ? '' : p; }
+
 /* =====================================================================
  *  VPN 账号与授权
  * ===================================================================== */
@@ -524,28 +556,83 @@ app.post('/api/vpn', attach, need('vpn', 'rw'), async (req, res) => {
     ip = '10.100.0.' + ((used.length ? Math.max(...used) : 10) + 1);
   }
   const { priv, pub } = wgKeygen();
+  /* 登录账号：勾选「启用VPN账号」即启用；未勾选则默认建立**未启用**账号（口令可空）。
+     启用但未填口令 -> 自动生成并回传，供管理员复制转交本人。 */
+  const wantLogin = !!req.body.login_enabled;
+  let rawPwd = typeof req.body.password === 'string' ? req.body.password : '';
+  if (rawPwd) { const m = vpnPwdPolicy(rawPwd); if (m) return bad(res, m); }
+  let generated = false;
+  if (wantLogin && !rawPwd) { rawPwd = randVpnPwd(); generated = true; }
+  const pwdEnc = rawPwd ? encKey(rawPwd) : null;
   try {
-    const r = await D.run(`INSERT INTO vpn_account (name, vpn_ip, note, pubkey, privkey) VALUES (?,?,?,?,?)`,
-      [name, ip, str(req.body.note, 128) || null, pub, encKey(priv)]);
-    await audit(req, '新增 VPN 用户', `${name} ${ip}（默认空权限，已生成密钥）`);
+    const r = await D.run(`INSERT INTO vpn_account
+        (name, vpn_ip, note, pubkey, privkey, login_enabled, pwd_enc)
+      VALUES (?,?,?,?,?,?,?)`,
+      [name, ip, str(req.body.note, 128) || null, pub, encKey(priv),
+       wantLogin ? 1 : 0, pwdEnc]);
+    await audit(req, wantLogin ? '新增 VPN 账号（已启用）' : '新增 VPN 账号（未启用）',
+      `${name} ${ip}（默认空权限，已生成密钥）`);
     await syncPeers(req);
-    res.json({ ok: true, id: r.id, vpn_ip: ip, pubkey: pub });
+    res.json({ ok: true, id: r.id, vpn_ip: ip, pubkey: pub, login_enabled: wantLogin ? 1 : 0,
+      password: rawPwd || '', generated });
   } catch (e) {
     if (D.isDup(e)) return bad(res, '该姓名或 IP 已存在');
     throw e;
   }
 });
 app.put('/api/vpn/:id', attach, need('vpn', 'rw'), async (req, res) => {
-  await q(`UPDATE vpn_account SET name=?, note=?, status=? WHERE id=?`,
-    [str(req.body.name, 64), str(req.body.note, 128) || null, req.body.status === 0 ? 0 : 1, Number(req.params.id)]);
-  await audit(req, '修改 VPN 用户', str(req.body.name, 64));
-  res.json({ ok: true });
+  const id = Number(req.params.id);
+  const t = await q1(`SELECT * FROM vpn_account WHERE id=?`, [id]);
+  if (!t) return res.status(404).json({ error: '账号不存在' });
+  const name = str(req.body.name, 64) || t.name;
+  const note = str(req.body.note, 128) || null;
+  const status = req.body.status === 0 ? 0 : 1;
+  /* 登录启停：未传则保持原状。启用时空口令 -> 自动生成（并有口令时才允许启用）。 */
+  const wantLogin = req.body.login_enabled === undefined ? (t.login_enabled ? 1 : 0) : (req.body.login_enabled ? 1 : 0);
+  let rawPwd = typeof req.body.password === 'string' ? req.body.password : '';
+  if (rawPwd) { const m = vpnPwdPolicy(rawPwd); if (m) return bad(res, m); }
+  let generated = false, pwdEnc = t.pwd_enc || null;
+  if (rawPwd) { pwdEnc = encKey(rawPwd); }
+  else if (wantLogin && !pwdEnc) { rawPwd = randVpnPwd(); generated = true; pwdEnc = encKey(rawPwd); }
+  try {
+    await q(`UPDATE vpn_account SET name=?, note=?, status=?, login_enabled=?, pwd_enc=? WHERE id=?`,
+      [name, note, status, wantLogin ? 1 : 0, pwdEnc, id]);
+  } catch (e) {
+    if (D.isDup(e)) return bad(res, '该姓名已存在');
+    throw e;
+  }
+  await audit(req, wantLogin ? '启用 VPN 账号' : '停用 VPN 账号', `${name}（${wantLogin ? '可客户端登录' : '未启用'}）`);
+  res.json({ ok: true, login_enabled: wantLogin ? 1 : 0, password: rawPwd, generated });
+});
+/* 查看账号明文口令（管理员按需读取；前端默认隐藏，勾选「显示密码」时才取） */
+app.get('/api/vpn/:id/password', attach, need('vpn', 'r'), async (req, res) => {
+  const id = Number(req.params.id);
+  const t = await q1(`SELECT name, login_enabled, pwd_enc FROM vpn_account WHERE id=?`, [id]);
+  if (!t) return res.status(404).json({ error: '账号不存在' });
+  const pwd = vpnPwdOf(t.pwd_enc);
+  if (!pwd) return res.json({ ok: true, password: '', has_pwd: 0 });
+  await audit(req, '查看 VPN 账号密码', t.name);
+  res.json({ ok: true, password: pwd, has_pwd: 1 });
+});
+app.post('/api/vpn/:id/password', attach, need('vpn', 'rw'), async (req, res) => {
+  const id = Number(req.params.id);
+  const t = await q1(`SELECT id, name FROM vpn_account WHERE id=?`, [id]);
+  if (!t) return res.status(404).json({ error: '账号不存在' });
+  let pwd = typeof req.body.password === 'string' ? req.body.password : '';
+  if (pwd) { const m = vpnPwdPolicy(pwd); if (m) return bad(res, m); }
+  const generated = !pwd;
+  if (generated) pwd = randVpnPwd();
+  await q(`UPDATE vpn_account SET pwd_enc=? WHERE id=?`, [encKey(pwd), id]);
+  await audit(req, generated ? '重置 VPN 账号密码（自动生成）' : '修改 VPN 账号密码', t.name);
+  res.json({ ok: true, password: pwd, generated });
 });
 app.delete('/api/vpn/:id', attach, need('vpn', 'rw'), async (req, res) => {
   const id = Number(req.params.id);
-  const t = await q1(`SELECT name FROM vpn_account WHERE id=?`, [id]);
+  const t = await q1(`SELECT name, vpn_ip, login_enabled FROM vpn_account WHERE id=?`, [id]);
+  /* 配置与账号同一行：DELETE 即同时删除该用户的 VPN 配置与登录账号（vpn_grant 外键级联清理）。 */
   await q(`DELETE FROM vpn_account WHERE id=?`, [id]);
-  await audit(req, '删除 VPN 用户', t ? t.name : id);
+  await audit(req, t && t.login_enabled ? '删除 VPN 账号及其配置' : '删除 VPN 配置',
+    t ? `${t.name}（${t.vpn_ip}）；账号与配置一并删除` : id);
   await syncPeers(req);
   res.json({ ok: true });
 });
@@ -637,7 +724,7 @@ AllowedIPs = ${allowIps.join(', ')}
 PersistentKeepalive = 25
 `.replace(/[^\t\n\r\x20-\x7E]/g, '');
   const hash = crypto.createHash('sha256').update(conf).digest('hex');
-  return { name: v.name, vpn_ip: v.vpn_ip, conf, hash };
+  return { name: v.name, vpn_ip: v.vpn_ip, conf, hash, token, server: serverBase };
 }
 
 /* 管理端：导出某账号 .conf（需 vpn 读权限）。返回的 conf 已含自动更新所需的 server/token/id。 */
@@ -660,6 +747,30 @@ app.get('/api/client/conf', async (req, res) => {
   if (r.error) return res.status(400).json({ error: r.error });
   res.json({ name: r.name, vpn_ip: r.vpn_ip, conf: r.conf, hash: r.hash });
 });
+
+/* 客户端账号登录：凭「用户名(=VPN 配置姓名) + 口令」换取本账号配置。
+ * 供 wg-companion 桌面/移动客户端登录后自动拉取并导入配置；免管理员会话。
+ * 成功后返回 conf（wg-meta 内已含 server/token/id，客户端据此自动更新）与最近登录留痕。 */
+app.post('/api/client/login', asyncHandler(async (req, res) => {
+  const name = str(req.body.username, 64);
+  const pwd = typeof req.body.password === 'string' ? req.body.password : '';
+  if (!name || !pwd) return bad(res, '请输入用户名与密码');
+  const ip = ipOf(req);
+  const v = await q1(`SELECT * FROM vpn_account WHERE name=?`, [name]);
+  /* 统一返回「用户名或密码错误」，不泄露账号是否存在 / 是否启用（避免账号枚举） */
+  if (!v || !v.login_enabled || v.status !== 1 || !v.pwd_enc ||
+      !vpnPwdVerify(pwd, v.pwd_enc))
+    return res.status(401).json({ error: '用户名或密码错误，或该账号未启用' });
+  const r = await buildConf(v.id, req);
+  if (!r) return res.status(404).json({ error: '账号不存在' });
+  if (r.error) return res.status(400).json({ error: r.error });
+  await q(`UPDATE vpn_account SET last_login_at=${D.sql.now3}, last_login_ip=? WHERE id=?`, [ip, v.id]);
+  await q(`INSERT INTO audit_log (ts, actor, action, target, ip) VALUES (${D.sql.now3},?,?,?,?)`,
+    [v.name, '客户端登录', v.vpn_ip, ip]).catch(() => {});
+  res.json({ ok: true, id: v.id, name: v.name, vpn_ip: r.vpn_ip, token: r.token, server: r.server,
+    conf: r.conf, hash: r.hash });
+}));
+
 app.put('/api/vpn/:id/grants', attach, need('vpn', 'rw'), async (req, res) => {
   const id = Number(req.params.id);
   if (!(await q1(`SELECT id FROM vpn_account WHERE id=?`, [id])))
@@ -804,6 +915,11 @@ async function initDb() {
     if (!cols.includes('mode'))    await D.run(`ALTER TABLE vpn_account ADD COLUMN mode VARCHAR(8) NOT NULL DEFAULT 'allow'`);
     if (!cols.includes('full_proxy')) await D.run(`ALTER TABLE vpn_account ADD COLUMN full_proxy INTEGER NOT NULL DEFAULT 0`);
     if (!cols.includes('client_token')) await D.run(`ALTER TABLE vpn_account ADD COLUMN client_token VARCHAR(64) NULL`);
+    /* 客户端登录凭据（与 VPN 配置同一行，一一绑定）：启停 / 口令 / 最近登录 */
+    if (!cols.includes('login_enabled')) await D.run(`ALTER TABLE vpn_account ADD COLUMN login_enabled INTEGER NOT NULL DEFAULT 0`);
+    if (!cols.includes('pwd_enc'))       await D.run(`ALTER TABLE vpn_account ADD COLUMN pwd_enc VARCHAR(255) NULL`);
+    if (!cols.includes('last_login_at')) await D.run(`ALTER TABLE vpn_account ADD COLUMN last_login_at VARCHAR(32) NULL`);
+    if (!cols.includes('last_login_ip')) await D.run(`ALTER TABLE vpn_account ADD COLUMN last_login_ip VARCHAR(45) NULL`);
   } catch (e) { console.error('[WARN] 字段迁移失败：', e.message); }
   /* 不设任何固定默认口令。未配置 ADMIN_INIT_PWD 时，admin 以「口令未设置」状态创建
      （pwd_hash 存空串），首次打开平台会引导在网页上设置口令。

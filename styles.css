@@ -808,3 +808,65 @@ body.theme-light .lp-glow{border-color:rgba(47,107,255,.75);
 @media(prefers-reduced-motion:reduce){
   *{animation-duration:.01ms!important;transition-duration:.01ms!important}
 }
+
+/* =====================================================================
+ *  VPN 账号管理 —— 账号页滑动切换 / 账号卡片 / 二级抽屉 / 密码展示
+ *  与既有 .ucard / .drawer / .am-switch 同一套设计语言
+ * ===================================================================== */
+.vac-stat{font-size:12.5px;color:var(--dim);margin-left:2px;white-space:nowrap}
+.vac-stat b{color:var(--txt);font-weight:600}
+
+/* 账号卡片（沿用 .ucard）：已启用左侧一条绿色高光；未启用整体降饱和，悬停恢复 */
+.ucard.vac-card{position:relative;overflow:hidden}
+.ucard.vac-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,var(--ok),transparent);opacity:0;transition:opacity .3s var(--ease)}
+.ucard.vac-card:not(.vac-off)::before{opacity:.95}
+.ucard.vac-off{opacity:.7;filter:saturate(.75)}
+.ucard.vac-off:hover{opacity:1;filter:none}
+
+/* VPN 配置页「启用 VPN 账号」勾选行 */
+.acct-enable{display:flex;align-items:flex-start;gap:11px;padding:12px 14px;margin:4px 0 14px;
+  border:1px solid var(--line2);border-radius:12px;background:var(--panel2);cursor:pointer;
+  transition:border-color .22s,box-shadow .25s,transform .18s var(--ease)}
+.acct-enable:hover{border-color:var(--accent);box-shadow:0 8px 22px -14px rgba(76,141,255,.45)}
+.acct-enable:active{transform:scale(.995)}
+.acct-enable input[type=checkbox]{width:18px;height:18px;margin-top:2px;accent-color:var(--accent);cursor:pointer;flex:none}
+.acct-enable .ae-main{display:flex;flex-direction:column;gap:3px}
+.acct-enable .ae-txt{font-size:13.5px;font-weight:600}
+.acct-enable .ae-sub{font-size:11.5px;color:var(--faint);line-height:1.55}
+
+/* VPN 账号二级抽屉 */
+.drawer.vac-drawer.on{box-shadow:0 0 0 1px rgba(46,204,143,.35) inset,0 26px 70px -30px rgba(0,0,0,.7)}
+.drawer.vac-drawer .acc-toggle{margin-bottom:14px}
+.vac-pwd-box{border:1px solid var(--line2);border-radius:14px;background:var(--panel2);padding:14px 15px;
+  animation:vacPop .34s var(--ease) both}
+.vpb-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.vpb-t{font-size:13.5px;font-weight:600}
+.vpb-row{display:flex;align-items:center;gap:8px}
+.vac-pwd{flex:1;min-width:0;font-family:Consolas,"JetBrains Mono",monospace;font-size:13px;letter-spacing:.5px;
+  padding:9px 12px;border-radius:10px;border:1px solid var(--line2);background:var(--input-bg);color:var(--dim);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  transition:color .25s,border-color .25s,box-shadow .25s}
+.vac-pwd.shown{color:var(--txt);border-color:var(--accent);letter-spacing:1px;
+  box-shadow:0 0 0 3px rgba(76,141,255,.12)}
+.vpb-show{display:inline-flex;align-items:center;gap:7px;margin-top:11px;font-size:12.5px;color:var(--dim);cursor:pointer;
+  transition:color .2s}
+.vpb-show:hover{color:var(--txt)}
+.vpb-show input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+.vac-acts{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+
+/* 客户端配置弹窗：账号 / 密码区 */
+.conf-pwd-box{margin-top:14px}
+.ca-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+.ca-k{flex:none;width:52px;font-size:12.5px;color:var(--dim)}
+.ca-v{flex:1;min-width:0;font-family:Consolas,"JetBrains Mono",monospace;font-size:13px;padding:8px 11px;
+  border-radius:9px;border:1px solid var(--line2);background:var(--input-bg);color:var(--txt);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 口令结果弹窗（自动生成 / 重置后展示，可一键复制） */
+.pwd-result{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.pwd-result code{flex:1;font-family:Consolas,"JetBrains Mono",monospace;font-size:15px;letter-spacing:1.5px;
+  padding:13px 14px;border-radius:11px;border:1px dashed var(--accent);background:var(--panel2);color:var(--txt);
+  text-align:center;user-select:all;animation:vacPop .34s var(--ease) both}
+
+@keyframes vacPop{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}

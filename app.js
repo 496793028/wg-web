@@ -60,6 +60,7 @@ const ICON = {
   eye:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>',
   eyeOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 10.7a3 3 0 0 0 4.2 4.2"/><path d="M9.9 5.2A9.6 9.6 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.3 4M6.1 6.1A17 17 0 0 0 2 12s3.5 7 10 7a9.6 9.6 0 0 0 3-.5"/></svg>',
   more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>',
+  copy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
 };
 
 const MODULES = [
@@ -74,8 +75,8 @@ const ROLES = { admin:'超级管理员', sec:'安全审计员', op:'运维操作
 /* ---------------- 状态 ---------------- */
 let S = { accounts:[], pools:[], packages:[], vpn:[], logs:[], audits:[], stats:{} };
 let me = null, needSetup = false, appErr = '';   // needSetup：首次部署、admin 口令尚未设置
-const ui = { route:'account', sel:'account', destTab:'pool', auditTab:'access', batch:false, picked:new Set(),
-  editGrants:[], f:{ name:'', dst:'', port:'', act:'', days:'' }, q:{ vpn:'', pool:'', pkg:'', grant:'' }, dockOpen:false };
+const ui = { route:'account', sel:'account', destTab:'pool', auditTab:'access', acctTab:'platform', batch:false, picked:new Set(),
+  editGrants:[], f:{ name:'', dst:'', port:'', act:'', days:'' }, q:{ vpn:'', pool:'', pkg:'', grant:'', acct:'' }, dockOpen:false };
 const canView = m => !!me && (me.role==='admin' || (me.perm && me.perm[m] && me.perm[m]!=='none'));
 const canEdit = m => !!me && (me.role==='admin' || (me.perm && me.perm[m]==='rw'));
 
@@ -92,7 +93,7 @@ function setTheme(t){
 const UI_KEY = 'vpn_ui';
 function saveUi(){
   try{ localStorage.setItem(UI_KEY, JSON.stringify({
-    route: ui.route, sel: ui.sel, destTab: ui.destTab, auditTab: ui.auditTab })); }catch(e){}
+    route: ui.route, sel: ui.sel, destTab: ui.destTab, auditTab: ui.auditTab, acctTab: ui.acctTab })); }catch(e){}
 }
 function loadUi(){
   try{ const o = JSON.parse(localStorage.getItem(UI_KEY) || '{}');
@@ -478,8 +479,9 @@ const fieldVal = el => (el.tagName==='INPUT' && el.type==='checkbox') ? (el.chec
   : (el.value!=null ? el.value : el.textContent);
 function layerSig(){
   const layer=$('#layer'); if(!layer) return '';
+  /* 排除项：搜索框（点开即变）、VPN 账号抽屉的密码展示区（只读回显，不应算「未保存」） */
   return [...layer.querySelectorAll('input,textarea,select,.combo-val')]
-    .filter(el=>!el.closest('.sfield, .combo-search'))
+    .filter(el=>!el.closest('.sfield, .combo-search, .vac-pwd-box'))
     .map(el=>`${el.name||el.id||el.tagName}=${fieldVal(el)}`).join('|');
 }
 function snapLayer(){
@@ -628,6 +630,19 @@ function accAvatar(a, size){
   return `<div class="avatar" style="width:${px}px;height:${px}px;border-radius:${Math.round(px*0.28)}px;font-size:${Math.round(px*0.4)}px;background:${colorOf(a.name)}">${url?`<img src="${esc(url)}" alt="">`:esc(String(a.name||'').slice(0,1))}</div>`;
 }
 function viewAccount(){
+  const isVpn = ui.acctTab==='vpn';
+  return `<div class="page-hd"><div><div class="page-title">账号管理</div>
+      <div class="page-desc">${isVpn
+        ? 'VPN 账号与 VPN 配置一一绑定：可启用 / 停用账号、查看与修改密码；删除任一方即同时删除另一方'
+        : '维护本平台登录账号，并按模块分配「无权限 / 仅查看 / 可修改」三级权限'}</div></div>
+    ${isVpn?'':`<div class="hd-actions"><button class="btn primary" data-act="acct-new" ${!canEdit('account')?'disabled':''}>+ 新增账号</button></div>`}</div>
+    <div class="tabs"><div class="tabs-cursor"></div>
+      <div class="tab ${isVpn?'':'on'}" data-act="actab" data-v="platform">平台账号管理</div>
+      <div class="tab ${isVpn?'on':''}" data-act="actab" data-v="vpn">VPN账号管理</div></div>
+    <div class="tab-pane">${isVpn ? vpnAcctPane() : acctPane()}</div>`;
+}
+/* 平台账号管理：表格（横屏）/ 卡片（竖屏），同一份数据的两种呈现 */
+function acctPane(){
   const ro = !canEdit('account');
   const rows = S.accounts.map(a=>`<tr class="row-click"${rowActsAttr([
       {act:'acct-edit', id:a.id, label: ro?'查看':'编辑'},
@@ -654,10 +669,7 @@ function viewAccount(){
       <tbody>${rows}</tbody></table></div>`;
   const cards = `<div class="card-grid">${S.accounts.map((a,i)=>acctCardHTML(a,i,ro)).join('')
       || '<div class="empty"><p>暂无账号</p></div>'}</div>`;
-  return `<div class="page-hd"><div><div class="page-title">账号管理</div>
-      <div class="page-desc">维护本平台登录账号，并按模块分配「无权限 / 仅查看 / 可修改」三级权限</div></div>
-    <div class="hd-actions"><button class="btn primary" data-act="acct-new" ${ro?'disabled':''}>+ 新增账号</button></div></div>
-    ${ro?'<div class="ro-bar">当前账号对该模块只有查看权限。</div>':''}
+  return `${ro?'<div class="ro-bar">当前账号对该模块只有查看权限。</div>':''}
     ${isMobile() ? cards : table}`;
 }
 /* 账号管理（竖屏卡片）：与 VPN 配置 / 目的地池同一套卡片语言 */
@@ -706,6 +718,121 @@ function acctForm(id){
           class="${(a.perm[m.k]||'none')===v?'on':''}" ${ro||isAdmin?'disabled':''}>${PERM_LABEL[v]}</button>`).join('')}
       </div></td></tr>`).join('')}</tbody></table>
       <div class="hint">超级管理员默认拥有全部权限，不受此矩阵限制。</div></div>`;
+}
+
+/* ================= VPN 账号管理 =================
+ * VPN 账号与 VPN 配置是**同一条记录**（一一绑定）：删除任一方即同时删除另一方。
+ * 卡片沿用 VPN 配置页的 .ucard 设计语言；点击进入二级抽屉，可启用 / 停用、查看 / 修改密码。 */
+function vpnAcctPane(){
+  const ro = !canEdit('vpn');
+  const q = ui.q.acct.trim().toLowerCase();
+  const list = S.vpn.filter(v=>!q || (v.name+v.ip+(v.note||'')).toLowerCase().includes(q));
+  const on = S.vpn.filter(v=>v.login_enabled).length;
+  return `<div class="dest-toolbar">
+      ${sfield('sf_acct', ui.q.acct, v=>{ ui.q.acct=v; renderVpnAcctCards(); },'搜索姓名 / IP / 备注')}
+      <span class="vac-stat">共 <b>${S.vpn.length}</b> 个账号 · 已启用 <b>${on}</b></span>
+      <button class="btn primary" data-act="vacc-new" ${ro?'disabled':''}>+ 新增 VPN 账号</button>
+    </div>
+    ${ro?'<div class="ro-bar">当前账号对该模块只有查看权限。</div>':''}
+    <div class="card-grid" id="vaccGrid">${list.map((v,i)=>vaccCard(v,i,ro)).join('')
+      || '<div class="empty"><p>暂无 VPN 账号</p></div>'}</div>`;
+}
+function renderVpnAcctCards(){
+  const q = ui.q.acct.trim().toLowerCase(), ro = !canEdit('vpn');
+  const list = S.vpn.filter(v=>!q || (v.name+v.ip+(v.note||'')).toLowerCase().includes(q));
+  const g = $('#vaccGrid'); if(!g) return;
+  g.innerHTML = list.map((v,i)=>vaccCard(v,i,ro)).join('') || '<div class="empty"><p>暂无 VPN 账号</p></div>';
+}
+/* VPN 账号卡片：与 VPN 配置卡片同一套点击 / 悬停 / 入场动画（无头像功能，仅姓名首字色块） */
+function vaccCard(v, i, ro){
+  const on = !!v.login_enabled;
+  return `<div class="ucard vac-card ${on?'':'vac-off'}" data-act="vacc-open" data-id="${v.id}"
+      style="animation-delay:${i*35}ms" title="点击进入账号管理">
+    <div class="ucard-top">
+      <div class="avatar" style="background:${colorOf(v.name)}">${esc(String(v.name||'').slice(0,1))}</div>
+      <div style="min-width:0"><div class="ucard-name">${esc(v.name)}</div>
+        <div class="ucard-ip mono">${esc(v.ip)}</div></div>
+      <div class="ft-meta" style="margin-left:auto">
+        <span class="badge ${on?'ok':'danger'}"><i class="dot"></i>${on?'已启用':'未启用'}</span></div></div>
+    <div class="ucard-body"><div class="ucard-tags">
+      <span class="tag ${v.has_pwd?'':'more'}">${v.has_pwd?'已设置密码':'未设置密码'}</span>
+      <span class="tag">${esc(v.note||'无备注')}</span></div></div>
+    <div class="ucard-ft"><span>最近登录：${v.last_login_at?ago(new Date(String(v.last_login_at).replace(' ','T')).getTime()):'—'}</span>
+      <div class="row-acts">
+        <button class="btn sm" data-act="vacc-open" data-id="${v.id}">管理</button>
+        <button class="btn sm danger" data-act="vacc-del" data-id="${v.id}" ${ro?'disabled':''}>删除</button>
+      </div></div>
+  </div>`;
+}
+/* 新增 VPN 账号：用户名即 VPN 配置姓名；提交后同步创建一个「无授权」的 VPN 配置用户并绑定。
+   密码可留空 —— 服务端会自动生成并回传（默认预填一份强随机口令，可自行改写）。 */
+function vaccForm(){
+  return `<div class="field"><label>用户名（= VPN 配置姓名）</label>
+      <input name="name" placeholder="如：陈晓明"><div class="field-err"></div>
+      <div class="hint">用户名与 VPN 配置的用户名绑定；创建时会同步新建一个<b>未授权</b>的 VPN 配置用户。</div></div>
+    <div class="field"><label>部门 / 备注</label><input name="note" placeholder="选填"></div>
+    ${pwField('登录密码','password',{val:randPwd(12),last:true,
+      hint:'留空则在提交后自动生成密码。启用账号必须设置密码，请复制后安全转交本人。'})}`;
+}
+/* VPN 账号二级抽屉（二级页面）：启用 / 停用 · 查看 / 修改密码 */
+function openAcct(id){
+  const v = vuser(id); if(!v) return;
+  const ro = !canEdit('vpn'), on = !!v.login_enabled;
+  ui.vaccId = v.id; ui.vacPwdPlain = '';
+  $('#layer').innerHTML = `<div class="drawer-wrap" data-backdrop><div class="drawer vac-drawer ${on?'on':''}">
+    <div class="drawer-hd"><div style="display:flex;align-items:center;gap:11px">
+      <div class="avatar" style="background:${colorOf(v.name)}">${esc(String(v.name).slice(0,1))}</div>
+      <div><div style="font-size:15px;font-weight:600">${esc(v.name)}</div>
+        <div class="ucard-ip mono">${esc(v.ip)} · ${esc(v.note||'无备注')}</div></div></div>
+      <button class="icon-btn" data-close>×</button></div>
+    <div class="drawer-bd">
+      <div class="mode-toggle acc-toggle ${on?'on':''}" data-act="vacc-toggle">
+        <div class="mt-left"><div class="mt-title"><span class="mode-badge">账号</span> 启用 VPN 账号</div>
+          <div class="mt-sub">启用后该用户可用「姓名 + 密码」登录客户端自动拉取配置；停用则无法登录</div></div>
+        <span class="am-switch ${on?'on':''}"><span class="am-knob"></span></span>
+      </div>
+      <div class="vac-pwd-box">
+        <div class="vpb-hd"><span class="vpb-t">登录密码</span>
+          <span class="badge ${v.has_pwd?'ok':'warn'}">${v.has_pwd?'已设置':'未设置'}</span></div>
+        <div class="vpb-row">
+          <code class="vac-pwd" id="vacPwd">••••••••••</code>
+          <button class="icon-btn" data-act="vacc-copy" title="复制密码">${ICON.copy}</button>
+        </div>
+        <label class="vpb-show"><input type="checkbox" id="vacShowPwd" ${ro?'disabled':''}><span>显示密码</span></label>
+        <div class="hint" style="margin-top:6px">密码用于客户端登录；默认隐藏，勾选「显示密码」后展示。</div>
+      </div>
+      <div class="vac-acts">
+        <button class="btn" data-act="vacc-pwd" data-id="${v.id}" ${ro?'disabled':''}>修改密码</button>
+        <button class="btn" data-act="vacc-gen" data-id="${v.id}" ${ro?'disabled':''}>随机重置</button>
+      </div>
+      <div class="blk-hint">⚠ 该账号与其 <b>VPN 配置</b>一一绑定：删除账号会<b>同时删除其 VPN 配置</b>与全部授权。</div>
+    </div>
+    <div class="drawer-ft"><div class="left">
+      <button class="btn danger" data-act="vacc-del" data-id="${v.id}" ${ro?'disabled':''}>删除账号</button></div>
+      <div style="display:flex;gap:9px"><button class="btn" data-close>关闭</button></div></div>
+  </div></div>`;
+  /* 只读抽屉：密码用 <code> 展示、显示开关走 change 事件，均不进 layerSig —— 点外部不会被「未保存」拦截 */
+  layerSig0 = layerSig(); drawerSnap = null;
+  bindSF();
+}
+/* 展示明文密码（勾选「显示密码」时按需向后端索取，避免整页携带全部口令） */
+async function loadAcctPwd(id, show){
+  const el = document.getElementById('vacPwd'); if(!el) return;
+  if(!show){ ui.vacPwdPlain=''; el.textContent='••••••••••'; el.classList.remove('shown'); return; }
+  try{
+    const r = await api('GET', `vpn/${id}/password`);
+    ui.vacPwdPlain = r.password || '';
+    el.textContent = r.password || '（未设置密码）';
+    el.classList.toggle('shown', !!r.password);
+  }catch(e){ el.textContent='（读取失败）'; toast(e.message,'err'); }
+}
+/* 展示账号口令（自动生成 / 重置后）：带复制按钮，便于安全转交本人 */
+function showPwdResult(name, pwd){
+  modal({ title:`登录密码 — ${name}`,
+    body:`<div class="pwd-result"><code id="pwdRes">${esc(pwd)}</code>
+        <button class="icon-btn" data-act="pwdres-copy" title="复制密码">${ICON.copy}</button></div>
+      <div class="hint">请复制后通过安全渠道转交本人。客户端用「姓名 + 该密码」登录后会<b>自动拉取配置</b>。</div>`,
+    extra:`<button class="btn" data-act="pwdres-copy">复制密码</button>`, okText:'我已复制', onOk:()=>true });
 }
 
 /* ================= 目的地池 ================= */
@@ -875,10 +1002,18 @@ function renderVpnCards(){
   g.innerHTML = list.map((v,i)=>ucardHTML(v,i)).join('') || '<div class="empty"><p>没有匹配的用户</p></div>';
 }
 function vpnForm(){
-  return `<div class="field"><label>真实姓名</label><input name="name" placeholder="如：陈晓明"><div class="field-err"></div></div>
+  return `<div class="field"><label>真实姓名（= VPN 账号用户名）</label><input name="name" placeholder="如：陈晓明"><div class="field-err"></div>
+      <div class="hint">该姓名同时作为客户端登录的用户名，与 VPN 账号<b>一一绑定</b>（删除任一方即同时删除另一方）。</div></div>
     <div class="grid2"><div class="field"><label>VPN 内网 IP</label><input name="vpn_ip" placeholder="留空自动分配"><div class="field-err"></div>
       <div class="hint">自动分配：10.100.0.x 取当前最大值 +1</div></div>
     <div class="field"><label>部门 / 备注</label><input name="note" placeholder="选填"></div></div>
+    <label class="acct-enable" for="vacEnableChk">
+      <input type="checkbox" name="login_enabled" id="vacEnableChk">
+      <span class="ae-main"><span class="ae-txt">启用 VPN 账号</span>
+        <span class="ae-sub">勾选后该用户即可用「姓名 + 密码」登录客户端；<b>不勾选则默认建立未启用的账号</b>（口令可为空，之后可在账号管理中启用）</span></span>
+    </label>
+    <div id="vacPwdSlot" hidden>${pwField('登录密码','password',{last:true,
+      hint:'留空则在提交后自动生成密码。启用账号必须设置密码，请复制后安全转交本人。'})}</div>
     <div class="field" style="margin-bottom:0"><label>访问授权</label>
       <div class="hint" style="margin-top:0">创建后默认为<b>空权限</b>，需点击卡片授权后才能访问任何目的地。</div></div>`;
 }
@@ -926,11 +1061,28 @@ async function showVpnConf(id, note){
   let r;
   try{ r = await api('GET','vpn/'+id+'/conf'); }
   catch(e){ return toast(e.message,'err'); }
+  const v = vuser(id) || {};
+  ui.confVpnId = id; ui.confPwdPlain = '';
   const noteHTML = note ? `<div class="warn-box">${esc(note)}</div>` : '';
-  modal({ title:`客户端配置 — ${r.name}`, wide:true,
+  /* 配置弹窗下方：账号 + 密码（密码默认隐藏，勾选「显示密码」按需取回）。
+     该窗口去除「点空白处关闭」，点空白处改为轻微抖动提示。 */
+  const acctHTML = `<div class="vac-pwd-box conf-pwd-box">
+      <div class="vpb-hd"><span class="vpb-t">客户端登录账号</span>
+        <span class="badge ${v.login_enabled?'ok':'danger'}"><i class="dot"></i>${v.login_enabled?'已启用':'未启用'}</span></div>
+      <div class="ca-row"><span class="ca-k">用户名</span><code class="ca-v" id="confUser">${esc(r.name)}</code>
+        <button class="icon-btn" data-act="conf-copy" data-what="user" title="复制用户名">${ICON.copy}</button></div>
+      <div class="ca-row"><span class="ca-k">密码</span><code class="ca-v" id="confPwd">••••••••</code>
+        <button class="icon-btn" data-act="conf-copy" data-what="pwd" title="复制密码">${ICON.copy}</button></div>
+      <label class="vpb-show"><input type="checkbox" id="confShowPwd"><span>显示密码</span></label>
+      <div class="hint" style="margin-top:6px">${v.login_enabled
+        ? '客户端用「用户名 + 密码」登录后会自动拉取本配置。'
+        : '该账号尚未启用，客户端无法用它登录；可在「账号管理 → VPN账号管理」中启用。'}</div>
+    </div>`;
+  modal({ title:`客户端配置 — ${r.name}`, wide:true, shakeOnBackdrop:true,
     body:`${noteHTML}<div class="field"><label>${esc(r.name)} · ${esc(r.vpn_ip)}</label>
       <textarea id="wgConf" class="wg-conf" readonly rows="15">${esc(r.conf)}</textarea></div>
-      <div class="hint">私钥明文仅在服务端解密后下发，不会再次以明文存储。请通过安全渠道交付给用户，本窗口关闭后需重新点击「客户端配置」查看。</div>`,
+      ${acctHTML}
+      <div class="hint">私钥明文仅在服务端解密后下发，不会再次以明文存储。请通过安全渠道交付给用户。</div>`,
     extra:'<button class="btn" id="copyConf">复制</button>',
     okText:'下载 .conf',
     after: ()=>{ const b=document.getElementById('copyConf');
@@ -944,6 +1096,17 @@ async function showVpnConf(id, note){
       const a=document.createElement('a');
       a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));
       a.download=`${ascii || r.vpn_ip}-wg.conf`; a.click(); toast('已下载'); } });
+}
+/* 客户端配置弹窗：勾选「显示密码」时按需取回明文（默认隐藏） */
+async function loadConfAcct(show){
+  const el = document.getElementById('confPwd'); if(!el) return;
+  if(!show){ ui.confPwdPlain=''; el.textContent='••••••••'; el.classList.remove('shown'); return; }
+  try{
+    const r = await api('GET', `vpn/${ui.confVpnId}/password`);
+    ui.confPwdPlain = r.password || '';
+    el.textContent = r.password || '（未设置密码）';
+    el.classList.toggle('shown', !!r.password);
+  }catch(e){ el.textContent='（读取失败）'; toast(e.message,'err'); }
 }
 function grantListHTML(){
   const q = ui.q.grant.trim().toLowerCase(), sel = ui.editGrants;
@@ -1055,7 +1218,8 @@ function bindLogFilters(){
 
 /* ---------------- 弹窗 ---------------- */
 function modal(o){
-  $('#layer').innerHTML = `<div class="modal-wrap" data-backdrop><div class="modal${o.wide?' wide':''}">
+  /* shakeOnBackdrop：点空白处不关闭，改为轻微抖动提示（用于需要显式关闭的窗口，如客户端配置） */
+  $('#layer').innerHTML = `<div class="modal-wrap" data-backdrop${o.shakeOnBackdrop?' data-noclose':''}><div class="modal${o.wide?' wide':''}">
     <div class="modal-hd"><h3>${esc(o.title)}</h3><button class="icon-btn" data-close>×</button></div>
     <div class="modal-bd">${o.body}</div>
     <div class="modal-ft">${o.extra||''}<button class="btn" data-close>取消</button>
@@ -1382,6 +1546,66 @@ const ACT = {
     confirmBox('删除账号',`确定删除 <b>${esc(a.name)}</b>（${esc(a.login)}）吗？该操作不可撤销。`, async ()=>{
       await api('DELETE','accounts/'+a.id); await loadState();
       refresh(); toast('已删除'); }); },
+
+  /* --- VPN 账号管理（与 VPN 配置一一绑定） --- */
+  'actab': el=>{ rememberTabCursor(); ui.acctTab = el.dataset.v==='vpn' ? 'vpn' : 'platform'; ui.q.acct=''; saveUi(); refresh(); },
+  'vacc-open': el=> openAcct(el.dataset.id),
+  'vacc-new': ()=> modal({ title:'新增 VPN 账号', body:vaccForm(), onOk: async ()=>{
+      if(!validateRequired([{n:'name',label:'用户名'}])) return false;
+      const g = readForm();
+      const r = await api('POST','vpn',{ name:g.name, note:g.note||'', login_enabled:1, password:g.password||'' });
+      await loadState(); refresh();
+      toast(`已创建 VPN 账号「${g.name}」（同步新建了未授权的 VPN 配置）`);
+      if(r.password){ showPwdResult(g.name, r.password); return false; }
+    }}),
+  'vacc-del': el=>{ const v = vuser(el.dataset.id) || vuser(ui.vaccId); if(!v) return;
+    if(!canEdit('vpn')) return toast('无修改权限','err');
+    confirmBox('删除 VPN 账号',
+      `确定删除 <b>${esc(v.name)}</b>（${esc(v.ip)}）吗？<br><br>
+       该账号与其 <b>VPN 配置一一绑定</b> —— 删除后会<b>同时删除该用户的 VPN 配置</b>及其全部访问授权，且不可撤销。历史访问记录会保留。`,
+      async ()=>{ await api('DELETE','vpn/'+v.id); await loadState(); closeLayer(); refresh();
+        toast('账号与其 VPN 配置已一并删除'); }); },
+  'vacc-toggle': async ()=>{ const v = vuser(ui.vaccId); if(!v) return;
+    if(!canEdit('vpn')) return toast('无修改权限','err');
+    if(v.login_enabled){                       /* 停用：无需口令 */
+      await api('PUT','vpn/'+v.id,{ name:v.name, note:v.note||'', status:v.status, login_enabled:0 });
+      await loadState(); refresh(); openAcct(v.id); toast('账号已停用，将无法再登录客户端');
+    } else if(v.has_pwd){                      /* 启用且已有口令：直接启用 */
+      await api('PUT','vpn/'+v.id,{ name:v.name, note:v.note||'', status:v.status, login_enabled:1 });
+      await loadState(); refresh(); openAcct(v.id); toast('账号已启用');
+    } else {                                   /* 启用但无口令：要求输入，未输入则自动生成 */
+      modal({ title:`启用账号 — ${v.name}`,
+        body:`<div class="hint" style="margin:0 0 10px">该账号尚未设置密码。请输入登录密码，<b>留空将自动生成</b>。</div>
+          ${pwField('登录密码','password',{val:'',last:true})}`,
+        okText:'启用',
+        onOk: async ()=>{ const p = readForm().password;
+          const r = await api('PUT','vpn/'+v.id,{ name:v.name, note:v.note||'', status:v.status, login_enabled:1, password:p||'' });
+          await loadState(); refresh();
+          if(r.password) showPwdResult(v.name, r.password); else { openAcct(v.id); toast('账号已启用'); }
+          return false;   /* 已自行接管弹层（密码框 / 抽屉），阻止 modal 关闭清空内容 */
+        } });
+    } },
+  'vacc-pwd': el=>{ const v = vuser(el.dataset.id) || vuser(ui.vaccId); if(!v) return;
+    modal({ title:`修改密码 — ${v.name}`,
+      body: pwField('新密码','password',{val:randPwd(12),last:true,hint:'留空则自动生成随机密码。'}),
+      okText:'保存',
+      onOk: async ()=>{ const r = await api('POST',`vpn/${v.id}/password`,{password: readForm().password||''});
+        await loadState(); showPwdResult(v.name, r.password); return false; } }); },
+  'vacc-gen': el=>{ const v = vuser(el.dataset.id) || vuser(ui.vaccId); if(!v) return;
+    confirmBox('随机重置密码', `将 <b>${esc(v.name)}</b> 的登录密码重置为新的随机口令？旧密码会立即失效。`, async ()=>{
+      const r = await api('POST',`vpn/${v.id}/password`,{});
+      await loadState(); showPwdResult(v.name, r.password); return false;
+    }, '重置'); },
+  'vacc-copy': ()=>{ if(!ui.vacPwdPlain){ toast('请先勾选「显示密码」再复制','warn'); return; }
+    navigator.clipboard?.writeText(ui.vacPwdPlain); toast('已复制密码'); },
+  'pwdres-copy': ()=>{ const el=document.getElementById('pwdRes');
+    navigator.clipboard?.writeText(el?el.textContent:''); toast('已复制密码'); },
+  'conf-copy': el=>{ const what = el.dataset.what;
+    if(what==='user'){ const n=document.getElementById('confUser');
+      navigator.clipboard?.writeText(n?n.textContent:''); toast('已复制用户名'); return; }
+    if(!ui.confPwdPlain){ toast('请先勾选「显示密码」再复制','warn'); return; }
+    navigator.clipboard?.writeText(ui.confPwdPlain); toast('已复制密码'); },
+
   /* 目的地 */
   'pool-new': ()=> modal({title:'新增 IP-端口', body:poolForm(null), onOk: async ()=>{
       if(!validateRequired([{n:'name',label:'名称'},{n:'ip',label:'IP 地址'}])) return false;
@@ -1450,15 +1674,24 @@ const ACT = {
       const g=readForm();
       if(g.vpn_ip){ const ipErr=validIP(g.vpn_ip);
         if(ipErr){ setFieldError($('#layer [name="vpn_ip"]'), ipErr); shakeLayer(); return false; } }
-      const r=await api('POST','vpn',g); await loadState();
-      /* 新用户还没有任何授权 → AllowedIPs 里为空，此刻弹出的 conf 只要一配地址就作废了，
-         所以创建时不再弹配置页；改为提示去卡片里配置目的地（配好并保存时由 grant-save 按需弹 conf）。 */
-      toast(`已创建 ${r.vpn_ip}（默认空权限）—— 点卡片配置可访问的目的地`,'warn');
-      refresh(); }}),
+      const enable = !!($('#layer [name="login_enabled"]')||{}).checked;
+      const payload = { name:g.name, vpn_ip:g.vpn_ip||'', note:g.note||'' };
+      if(enable){ payload.login_enabled = 1; payload.password = g.password || ''; }
+      const r = await api('POST','vpn',payload); await loadState(); refresh();
+      if(enable){
+        toast(`已创建 ${r.vpn_ip}（默认空权限），VPN 账号已启用`);
+        /* 自动生成了口令：弹出可复制的密码框（自行接管弹层，故返回 false 阻止 modal 清空内容） */
+        if(r.password){ showPwdResult(g.name, r.password); return false; }
+      } else {
+        toast(`已创建 ${r.vpn_ip}（默认空权限），VPN 账号未启用 —— 可在「账号管理 → VPN账号管理」中启用`,'warn');
+      }
+    }}),
   'vpn-del': el=>{ const v=vuser(el.dataset.id);
-    confirmBox('删除 VPN 用户',`确定删除 <b>${esc(v.name)}</b>（${esc(v.ip)}）吗？历史访问记录会保留。`, async ()=>{
-      await api('DELETE','vpn/'+v.id); await loadState();
-      refresh(); toast('已删除'); }); },
+    confirmBox('删除 VPN 配置',
+      `确定删除 <b>${esc(v.name)}</b>（${esc(v.ip)}）的 VPN 配置吗？<br><br>
+       配置与 VPN 账号<b>一一绑定</b> —— 删除后会<b>同时删除该用户的 VPN 账号</b>及其全部访问授权，且不可撤销。历史访问记录会保留。`,
+      async ()=>{ await api('DELETE','vpn/'+v.id); await loadState();
+        closeLayer(); refresh(); toast('VPN 配置与其账号已一并删除'); }); },
   'vpn-open': el=>{ if(ui.batch) return ACT['vpn-pick'](el); openGrant(el.dataset.id); },
   'vpn-conf': el=> showVpnConf(el.dataset.id),
   'vpn-pick': el=>{ const id=String(el.dataset.id); ui.picked.has(id)?ui.picked.delete(id):ui.picked.add(id); refresh(); },
@@ -1467,10 +1700,13 @@ const ACT = {
   'vpn-selall': ()=>{ S.vpn.forEach(v=>ui.picked.add(String(v.id))); refresh(); },
   'vpn-clrsel': ()=>{ ui.picked.clear(); refresh(); },
   'vpn-batch-del': ()=>{ if(!ui.picked.size) return toast('请先勾选用户','warn');
-    confirmBox('批量删除',`确定删除已选中的 <b>${ui.picked.size}</b> 个用户吗？不可撤销。`, async ()=>{
+    confirmBox('批量删除 VPN 配置',
+      `确定删除已选中的 <b>${ui.picked.size}</b> 个用户的 VPN 配置吗？<br><br>
+       配置与 VPN 账号<b>一一绑定</b> —— 会<b>同时删除这些用户的 VPN 账号</b>及其全部授权，且不可撤销。`,
+      async ()=>{
       const ids=[...ui.picked];
       for(const id of ids) await api('DELETE','vpn/'+id); await loadState();
-      ui.picked.clear(); ui.batch=false; refresh(); toast(`已删除 ${ids.length} 个用户`); }); },
+      ui.picked.clear(); ui.batch=false; refresh(); toast(`已删除 ${ids.length} 个用户（配置与账号一并删除）`); }); },
   'grant-toggle': el=>{ const {t,id}=el.dataset;
     const i=ui.editGrants.findIndex(g=>g.t===t && String(g.id)===String(id));
     i>=0 ? ui.editGrants.splice(i,1) : ui.editGrants.push({t,id});
@@ -1577,6 +1813,8 @@ document.addEventListener('click', e=>{
   if(lpFired){ lpFired=false; e.stopPropagation(); e.preventDefault(); return; }   // 长按已处理，吞掉尾随 click
   if(e.target.closest('[data-close]')) return closeLayer();
   if(e.target.matches('[data-backdrop]')){
+    /* 显式关闭窗口（如客户端配置）：点空白处**不关闭**，仅轻微抖动提示 */
+    if(e.target.hasAttribute('data-noclose')){ shakeLayer(); return; }
     /* 「未保存」= 字段签名变化（含抽屉的黑名单/全代理开关与授权清单变化）。
        首次点外部：黄标改动项 + 金色提示 + 轻晃，不关闭；已提示过仍未保存再点外部 = 放弃修改关闭。 */
     const drChanged = drawerSnap ? ((ui.editMode==='deny')!==drawerSnap.mode ||
@@ -1613,6 +1851,10 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeCombos(); c
 document.addEventListener('change', e=>{
   const i=e.target.closest('.proto-chk input');
   if(i){ i.closest('.proto-chk')?.classList.toggle('on', i.checked); syncProtoPreview(); clearWarnVisuals(); return; }
+  /* 密码展示开关：按需向服务端索取明文（默认隐藏），不进「未保存」签名 */
+  if(e.target.id==='vacShowPwd'){ loadAcctPwd(ui.vaccId, e.target.checked); return; }
+  if(e.target.id==='confShowPwd'){ loadConfAcct(e.target.checked); return; }
+  if(e.target.id==='vacEnableChk'){ const s=document.getElementById('vacPwdSlot'); if(s) s.hidden=!e.target.checked; }
   onLayerInput(e.target);
 });
 /* 文本框输入：标记未保存改动（黄色光晕）+ 顺手清掉该字段的校验红框 */
@@ -1641,6 +1883,7 @@ document.addEventListener('input', e=> onLayerInput(e.target));
     ui.sel   = (saved.sel==='gear') ? 'gear' : ui.route;
     if(saved.destTab==='pool'||saved.destTab==='pkg') ui.destTab = saved.destTab;
     if(saved.auditTab==='access'||saved.auditTab==='audit') ui.auditTab = saved.auditTab;
+    if(saved.acctTab==='platform'||saved.acctTab==='vpn') ui.acctTab = saved.acctTab;
   }
   render();
 })();
