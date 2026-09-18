@@ -693,7 +693,7 @@ body.theme-light .crop-stage{background:#e9edf3}
 }
 .ucard.black.proxy{ animation:halo-osc-card 4s ease-in-out infinite; }
 .drawer.black.proxy{ animation:halo-osc-drawer 4s ease-in-out infinite; }
-.blk-hint{margin-bottom:14px;padding:11px 13px;border-radius:12px;
+.blk-hint{margin-top:16px;margin-bottom:14px;padding:11px 13px;border-radius:12px;
   background:var(--gold-soft);border:1px solid var(--gold-line);color:var(--gold);font-size:12.5px;line-height:1.6}
 .blk-hint b{color:inherit;font-weight:600;font-size:inherit;line-height:inherit;vertical-align:baseline}
 .proxy-hint{background:var(--proxy-soft);border-color:var(--proxy-line);color:var(--proxy)}
