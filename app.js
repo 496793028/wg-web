@@ -41,6 +41,37 @@ function toast(msg, type='ok'){
 }
 const closeLayer = () => { $('#layer').innerHTML=''; layerSig0=null; };
 
+/* ---------------- 复制到剪贴板 ----------------
+ * ⚠️ navigator.clipboard 只在**安全上下文**（HTTPS 或 localhost）可用。本平台常以
+ * http://<内网IP>:8787 访问 —— 此时 navigator.clipboard 是 undefined，直接 `?.writeText()`
+ * 会**静默失败**：剪贴板仍保留上一次复制的内容（看起来像「复制出来的是别的东西」），
+ * 界面却提示成功。因此这里回退到 textarea + document.execCommand('copy')。
+ * 返回值表示是否真的写入成功，调用方据此给**真实**反馈，绝不谎报。 */
+function copyText(text){
+  const t = String(text == null ? '' : text);
+  if(!t) return false;
+  try{
+    if(navigator.clipboard && window.isSecureContext){ navigator.clipboard.writeText(t); return true; }
+  }catch(e){ /* 落到下面的回退 */ }
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = t; ta.setAttribute('readonly','');
+    ta.style.position='fixed'; ta.style.top='0'; ta.style.left='-9999px';
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, t.length);
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  }catch(e){ return false; }
+}
+/* 复制并给真实反馈：成功才提示成功；失败则报错并自动选中内容供手动复制 */
+function copyOrWarn(text, okMsg, fallbackEl){
+  if(copyText(text)){ toast(okMsg || '已复制'); return true; }
+  toast('复制失败：当前为非 HTTPS 环境且浏览器拒绝了剪贴板权限，请手动选中复制', 'err');
+  try{ if(fallbackEl){ fallbackEl.focus(); fallbackEl.select && fallbackEl.select(); } }catch(e){}
+  return false;
+}
+
 const ICON = {
   account:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3l7 3v6c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6l7-3z"/></svg>',
   dest:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg>',
@@ -631,11 +662,15 @@ function accAvatar(a, size){
 }
 function viewAccount(){
   const isVpn = ui.acctTab==='vpn';
+  /* 主操作按钮与 Tab 联动：位置、样式与「+ 新增账号」完全一致，只是随切换换成「+ 新增 VPN 账号」 */
+  const primary = isVpn
+    ? `<button class="btn primary" data-act="vacc-new" ${!canEdit('vpn')?'disabled':''}>+ 新增 VPN 账号</button>`
+    : `<button class="btn primary" data-act="acct-new" ${!canEdit('account')?'disabled':''}>+ 新增账号</button>`;
   return `<div class="page-hd"><div><div class="page-title">账号管理</div>
       <div class="page-desc">${isVpn
         ? 'VPN 账号与 VPN 配置一一绑定：可启用 / 停用账号、查看与修改密码；删除任一方即同时删除另一方'
         : '维护本平台登录账号，并按模块分配「无权限 / 仅查看 / 可修改」三级权限'}</div></div>
-    ${isVpn?'':`<div class="hd-actions"><button class="btn primary" data-act="acct-new" ${!canEdit('account')?'disabled':''}>+ 新增账号</button></div>`}</div>
+    <div class="hd-actions">${primary}</div></div>
     <div class="tabs"><div class="tabs-cursor"></div>
       <div class="tab ${isVpn?'':'on'}" data-act="actab" data-v="platform">平台账号管理</div>
       <div class="tab ${isVpn?'on':''}" data-act="actab" data-v="vpn">VPN账号管理</div></div>
@@ -731,7 +766,6 @@ function vpnAcctPane(){
   return `<div class="dest-toolbar">
       ${sfield('sf_acct', ui.q.acct, v=>{ ui.q.acct=v; renderVpnAcctCards(); },'搜索姓名 / IP / 备注')}
       <span class="vac-stat">共 <b>${S.vpn.length}</b> 个账号 · 已启用 <b>${on}</b></span>
-      <button class="btn primary" data-act="vacc-new" ${ro?'disabled':''}>+ 新增 VPN 账号</button>
     </div>
     ${ro?'<div class="ro-bar">当前账号对该模块只有查看权限。</div>':''}
     <div class="card-grid" id="vaccGrid">${list.map((v,i)=>vaccCard(v,i,ro)).join('')
@@ -767,9 +801,9 @@ function vaccCard(v, i, ro){
 /* 新增 VPN 账号：用户名即 VPN 配置姓名；提交后同步创建一个「无授权」的 VPN 配置用户并绑定。
    密码可留空 —— 服务端会自动生成并回传（默认预填一份强随机口令，可自行改写）。 */
 function vaccForm(){
-  return `<div class="field"><label>用户名（= VPN 配置姓名）</label>
-      <input name="name" placeholder="如：陈晓明"><div class="field-err"></div>
-      <div class="hint">用户名与 VPN 配置的用户名绑定；创建时会同步新建一个<b>未授权</b>的 VPN 配置用户。</div></div>
+  return `<div class="field"><label>用户名</label>
+      <input name="name" placeholder="推荐填写真实姓名"><div class="field-err"></div>
+      <div class="hint">该用户名同时是 VPN 配置的用户名（二者绑定）；创建时会同步新建一个<b>未授权</b>的 VPN 配置用户。</div></div>
     <div class="field"><label>部门 / 备注</label><input name="note" placeholder="选填"></div>
     ${pwField('登录密码','password',{val:randPwd(12),last:true,
       hint:'留空则在提交后自动生成密码。启用账号必须设置密码，请复制后安全转交本人。'})}`;
@@ -1002,8 +1036,8 @@ function renderVpnCards(){
   g.innerHTML = list.map((v,i)=>ucardHTML(v,i)).join('') || '<div class="empty"><p>没有匹配的用户</p></div>';
 }
 function vpnForm(){
-  return `<div class="field"><label>真实姓名（= VPN 账号用户名）</label><input name="name" placeholder="如：陈晓明"><div class="field-err"></div>
-      <div class="hint">该姓名同时作为客户端登录的用户名，与 VPN 账号<b>一一绑定</b>（删除任一方即同时删除另一方）。</div></div>
+  return `<div class="field"><label>用户名</label><input name="name" placeholder="推荐填写真实姓名"><div class="field-err"></div>
+      <div class="hint">该用户名同时是客户端登录名，与 VPN 账号<b>一一绑定</b>（删除任一方即同时删除另一方）。</div></div>
     <div class="grid2"><div class="field"><label>VPN 内网 IP</label><input name="vpn_ip" placeholder="留空自动分配"><div class="field-err"></div>
       <div class="hint">自动分配：10.100.0.x 取当前最大值 +1</div></div>
     <div class="field"><label>部门 / 备注</label><input name="note" placeholder="选填"></div></div>
@@ -1086,8 +1120,7 @@ async function showVpnConf(id, note){
     extra:'<button class="btn" id="copyConf">复制</button>',
     okText:'下载 .conf',
     after: ()=>{ const b=document.getElementById('copyConf');
-      if(b) b.onclick=()=>{ const t=document.getElementById('wgConf'); t.select();
-        navigator.clipboard?.writeText(t.value); toast('已复制'); }; },
+      if(b) b.onclick=()=>{ const t=document.getElementById('wgConf'); copyOrWarn(t.value, '已复制配置', t); }; },
     onOk: ()=>{ const t=document.getElementById('wgConf'); if(!t) return;
       /* .conf 必须纯 ASCII：WireGuard 客户端不接受含中文的配置文件/文件名（会导入失败）。
          文件名用「ASCII 化的姓名」，取不到就退回 VPN IP；内容再兜底滤一次非 ASCII。 */
@@ -1596,15 +1629,26 @@ const ACT = {
       const r = await api('POST',`vpn/${v.id}/password`,{});
       await loadState(); showPwdResult(v.name, r.password); return false;
     }, '重置'); },
-  'vacc-copy': ()=>{ if(!ui.vacPwdPlain){ toast('请先勾选「显示密码」再复制','warn'); return; }
-    navigator.clipboard?.writeText(ui.vacPwdPlain); toast('已复制密码'); },
-  'pwdres-copy': ()=>{ const el=document.getElementById('pwdRes');
-    navigator.clipboard?.writeText(el?el.textContent:''); toast('已复制密码'); },
-  'conf-copy': el=>{ const what = el.dataset.what;
+  'vacc-copy': async ()=>{ const id = ui.vaccId; if(!id) return;
+    /* 未显示密码时**自动取回后再复制**（而不是拒绝复制 —— 那样剪贴板会留上一次的内容，极易误解） */
+    if(!ui.vacPwdPlain){
+      await loadAcctPwd(id, true);
+      const cb=document.getElementById('vacShowPwd'); if(cb) cb.checked = true;
+    }
+    if(!ui.vacPwdPlain){ toast('该账号尚未设置密码','warn'); return; }
+    copyOrWarn(ui.vacPwdPlain, '已复制密码', document.getElementById('vacPwd')); },
+  'pwdres-copy': ()=>{ const el=document.getElementById('pwdRes'); const t=el?el.textContent:'';
+    if(!t){ toast('没有可复制的密码','err'); return; }
+    copyOrWarn(t, '已复制密码', el); },
+  'conf-copy': async el=>{ const what = el.dataset.what;
     if(what==='user'){ const n=document.getElementById('confUser');
-      navigator.clipboard?.writeText(n?n.textContent:''); toast('已复制用户名'); return; }
-    if(!ui.confPwdPlain){ toast('请先勾选「显示密码」再复制','warn'); return; }
-    navigator.clipboard?.writeText(ui.confPwdPlain); toast('已复制密码'); },
+      copyOrWarn(n?n.textContent:'', '已复制用户名', n); return; }
+    if(!ui.confPwdPlain){
+      await loadConfAcct(true);
+      const cb=document.getElementById('confShowPwd'); if(cb) cb.checked = true;
+    }
+    if(!ui.confPwdPlain){ toast('该账号尚未设置密码','warn'); return; }
+    copyOrWarn(ui.confPwdPlain, '已复制密码', document.getElementById('confPwd')); },
 
   /* 目的地 */
   'pool-new': ()=> modal({title:'新增 IP-端口', body:poolForm(null), onOk: async ()=>{
