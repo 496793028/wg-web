@@ -764,12 +764,18 @@ function vpnAcctPane(){
   const list = S.vpn.filter(v=>!q || (v.name+v.ip+(v.note||'')).toLowerCase().includes(q));
   const on = S.vpn.filter(v=>v.login_enabled).length;
   return `<div class="dest-toolbar">
+      <button class="btn ${ui.batch?'danger':''}" data-act="vacc-batch" ${ro?'disabled':''}>${ui.batch?'退出批量':'批量管理'}</button>
       ${sfield('sf_acct', ui.q.acct, v=>{ ui.q.acct=v; renderVpnAcctCards(); },'搜索姓名 / IP / 备注')}
       <span class="vac-stat">共 <b>${S.vpn.length}</b> 个账号 · 已启用 <b>${on}</b></span>
     </div>
     ${ro?'<div class="ro-bar">当前账号对该模块只有查看权限。</div>':''}
-    <div class="card-grid" id="vaccGrid">${list.map((v,i)=>vaccCard(v,i,ro)).join('')
-      || '<div class="empty"><p>暂无 VPN 账号</p></div>'}</div>`;
+    <div class="card-grid ${ui.batch?'batch-on':''}" id="vaccGrid">${list.map((v,i)=>vaccCard(v,i,ro)).join('')
+      || '<div class="empty"><p>暂无 VPN 账号</p></div>'}</div>
+    ${ui.batch?`<div class="batch-bar"><span>已选中 <b>${ui.picked.size}</b> 个</span>
+      <button class="btn sm" data-act="vacc-selall">全选</button>
+      <button class="btn sm" data-act="vacc-clrsel">清空</button>
+      <button class="btn danger sm" data-act="vacc-batch-del">删除所选</button>
+      <button class="btn sm ghost" data-act="vacc-batch-cancel">取消</button></div>`:''}`;
 }
 function renderVpnAcctCards(){
   const q = ui.q.acct.trim().toLowerCase(), ro = !canEdit('vpn');
@@ -780,22 +786,18 @@ function renderVpnAcctCards(){
 /* VPN 账号卡片：与 VPN 配置卡片同一套点击 / 悬停 / 入场动画（无头像功能，仅姓名首字色块） */
 function vaccCard(v, i, ro){
   const on = !!v.login_enabled;
-  return `<div class="ucard vac-card ${on?'':'vac-off'}" data-act="vacc-open" data-id="${v.id}"
-      style="animation-delay:${i*35}ms" title="点击进入账号管理">
+  const picked = ui.picked.has(String(v.id));
+  return `<div class="ucard vac-card ${on?'':'vac-off'} ${picked?'pick':''}" data-act="vacc-open" data-id="${v.id}"
+      data-batchpick="${v.id}" style="animation-delay:${i*35}ms" title="点击进入账号管理，或长按进入批量选择">
+    <div class="cbox ucard-pick ${picked?'on':''}" data-act="vacc-pick" data-id="${v.id}">${picked?ICON.check:''}</div>
     <div class="ucard-top">
       <div class="avatar" style="background:${colorOf(v.name)}">${esc(String(v.name||'').slice(0,1))}</div>
       <div style="min-width:0"><div class="ucard-name">${esc(v.name)}</div>
-        <div class="ucard-ip mono">${esc(v.ip)}</div></div>
-      <div class="ft-meta" style="margin-left:auto">
-        <span class="badge ${on?'ok':'danger'}"><i class="dot"></i>${on?'已启用':'未启用'}</span></div></div>
+        <div class="ucard-ip mono">${esc(v.ip)}</div></div></div>
     <div class="ucard-body"><div class="ucard-tags">
       <span class="tag ${v.has_pwd?'':'more'}">${v.has_pwd?'已设置密码':'未设置密码'}</span>
       <span class="tag">${esc(v.note||'无备注')}</span></div></div>
-    <div class="ucard-ft"><span>最近登录：${v.last_login_at?ago(new Date(String(v.last_login_at).replace(' ','T')).getTime()):'—'}</span>
-      <div class="row-acts">
-        <button class="btn sm" data-act="vacc-open" data-id="${v.id}">管理</button>
-        <button class="btn sm danger" data-act="vacc-del" data-id="${v.id}" ${ro?'disabled':''}>删除</button>
-      </div></div>
+    <div class="ucard-ft"><span>最近登录：${v.last_login_at?ago(new Date(String(v.last_login_at).replace(' ','T')).getTime()):'—'} · <span class="badge ${on?'ok':'danger'}"><i class="dot"></i>${on?'已启用':'未启用'}</span></span></div>
   </div>`;
 }
 /* 新增 VPN 账号：用户名即 VPN 配置姓名；提交后同步创建一个「无授权」的 VPN 配置用户并绑定。
@@ -1582,7 +1584,21 @@ const ACT = {
 
   /* --- VPN 账号管理（与 VPN 配置一一绑定） --- */
   'actab': el=>{ rememberTabCursor(); ui.acctTab = el.dataset.v==='vpn' ? 'vpn' : 'platform'; ui.q.acct=''; saveUi(); refresh(); },
-  'vacc-open': el=> openAcct(el.dataset.id),
+  'vacc-open': el=>{ if(ui.batch) return ACT['vacc-pick'](el); openAcct(el.dataset.id); },
+  /* VPN 账号批量管理：与 VPN 配置 / 目的地池同一套 batch 机制（按钮 + 卡片勾选 + 底部批量栏 + 卡片长按） */
+  'vacc-pick': el=>{ const id=String(el.dataset.id); ui.picked.has(id)?ui.picked.delete(id):ui.picked.add(id); refresh(); },
+  'vacc-batch': ()=>{ lpSig=null; ui.batch=!ui.batch; ui.picked.clear(); refresh(); },
+  'vacc-batch-cancel': ()=>{ ui.batch=false; ui.picked.clear(); refresh(); },
+  'vacc-selall': ()=>{ S.vpn.forEach(v=>ui.picked.add(String(v.id))); refresh(); },
+  'vacc-clrsel': ()=>{ ui.picked.clear(); refresh(); },
+  'vacc-batch-del': ()=>{ if(!ui.picked.size) return toast('请先勾选账号','warn');
+    confirmBox('批量删除 VPN 账号',
+      `确定删除选中的 <b>${ui.picked.size}</b> 个 VPN 账号吗？<br><br>
+       账号与对应 VPN 配置<b>一一绑定</b> —— 会<b>同时删除这些用户的 VPN 配置</b>及其全部授权，且不可撤销。`,
+      async ()=>{
+      const ids=[...ui.picked];
+      for(const id of ids) await api('DELETE','vpn/'+id); await loadState();
+      ui.picked.clear(); ui.batch=false; refresh(); toast(`已删除 ${ids.length} 个 VPN 账号（配置一并删除）`); }); },
   'vacc-new': ()=> modal({ title:'新增 VPN 账号', body:vaccForm(), onOk: async ()=>{
       if(!validateRequired([{n:'name',label:'用户名'}])) return false;
       const g = readForm();
