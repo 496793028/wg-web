@@ -698,15 +698,9 @@ async function buildConf(vpnId, req) {
   if (!token) { token = crypto.randomBytes(24).toString('hex'); await D.run(`UPDATE vpn_account SET client_token=? WHERE id=?`, [token, v.id]); }
 
   /* 服务端基址：优先 WG_PUBLIC_URL（反代 / 非标准端口场景），否则取请求 host。
-     ⚠️ 回环地址（127.0.0.1 / localhost / ::1）只对「打开平台的那台机器」有效 —— 写进
-     wg-meta 后，别的机器上的客户端会拿它去连**它自己**：既无法做服务端自动更新，也会把
-     错误地址带进客户端的「服务器地址」默认值。故导出时宁可不写（留空），由用户自行填写。 */
-  let serverBase = (process.env.WG_PUBLIC_URL || '').replace(/\/+$/, '');
-  if (!serverBase && req) {
-    const host = String(req.get('host') || '');
-    if (!/^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|::1)(:\d+)?$/i.test(host))
-      serverBase = `${req.protocol}://${host}`;
-  }
+     （127.0.0.1 / localhost 在 SSH 端口转发场景下是合法的 —— 用户本机可经隧道直达服务端，
+     因此不作过滤，由管理者自行判断是否要设 WG_PUBLIC_URL。） */
+  let serverBase = (process.env.WG_PUBLIC_URL || (req ? `${req.protocol}://${req.get('host')}` : '')).replace(/\/+$/, '');
 
   /* wg-meta 元数据注释（base64 UTF-8，保持 ASCII）：配套客户端解析后在界面显示
      真实姓名 / 授权模式（白名单·黑名单·全代理）/ 被授权网段；标准客户端按注释行忽略。 */
