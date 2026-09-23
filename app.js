@@ -955,8 +955,8 @@ function poolForm(id){
     ? ps.map(v=>`<span class="tag pool">${v}</span>`).join('')
     : `<span class="tag proto-empty">未选择协议</span>`;
   return `<div class="field"><label>名称</label><input name="name" value="${esc(p.name)}" ${ro?'disabled':''} placeholder="如：数据库-MySQL"><div class="field-err"></div></div>
-    <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="x.x.x.5" oninput="ipPreviewTick()"><div class="field-err"></div></div>
-    <div class="field"><label>子网掩码（可空）</label><input name="mask" value="" ${ro?'disabled':''} placeholder="255.255.255.0" oninput="ipPreviewTick()"><div class="field-err"></div></div></div>
+    <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="x.x.x.5" onblur="ipPreviewTick()"><div class="field-err"></div></div>
+    <div class="field"><label>子网掩码（可空）</label><input name="mask" value="" ${ro?'disabled':''} placeholder="255.255.255.0" onblur="ipPreviewTick()"><div class="field-err"></div></div></div>
     <div class="ip-preview" id="ipPreview">${ipPreviewHTML(p.ip, '')}</div>
     ${ipExamplesHTML()}
     <div class="field"><label>端口或区间，用逗号分隔</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口"><div class="field-err"></div></div>
@@ -1510,7 +1510,7 @@ function ipPreviewTick(){
   if(!box || !ip) return;
   box.innerHTML = ipPreviewHTML(ip.value, mk ? mk.value : '');
 }
-/* IP 填写示例卡片：示例一律用占位符（x 代表 0–255），不出现真实网段 */
+/* IP 填写示例卡片：默认收起、可点击展开；示例一律用占位符（x 代表 0–255），不出现真实网段 */
 function ipExamplesHTML(){
   const rows = [
     ['x.x.x.5',         '单机', '只授权这一台',                                    0],
@@ -1519,13 +1519,24 @@ function ipExamplesHTML(){
     ['x.x.x.5-x.x.x.9', '区间', '只授权这 5 个地址',                                0],
     ['x.x.x.5,x.x.x.9', '逗号', '多条一起授权',                                      0],
   ];
-  return `<div class="ip-eg">
-      <div class="ip-eg-hd"><span class="ip-eg-t">填写示例</span><span class="ip-eg-s">x 为 0–255 的任意数字</span></div>
-      <div class="ip-eg-rows">
-        ${rows.map(([c,k,d,key])=>`<div class="ip-eg-row${key?' key':''}"><code>${c}</code><span><b>${k}</b> · ${d}</span></div>`).join('')}
+  return `<div class="ip-eg collapsed" id="ipEg">
+      <div class="ip-eg-toggle" onclick="toggleIpEg(this)" title="展开 / 收起示例">
+        <svg class="ip-eg-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        <span class="ip-eg-t">填写示例</span>
+        <span class="ip-eg-s">x 为 0–255 的任意数字</span>
       </div>
-      <div class="ip-eg-fn">单机不会被默认掩码放大；区间只覆盖写出的这一段。</div>
+      <div class="ip-eg-body"><div class="ip-eg-inner">
+        <div class="ip-eg-rows">
+          ${rows.map(([c,k,d,key])=>`<div class="ip-eg-row${key?' key':''}"><code>${c}</code><span><b>${k}</b> · ${d}</span></div>`).join('')}
+        </div>
+        <div class="ip-eg-fn">单机不会被默认掩码放大；区间只覆盖写出的这一段。</div>
+      </div></div>
     </div>`;
+}
+/* 点击示例卡片标题栏：展开 / 收起 */
+function toggleIpEg(el){
+  const box = el.closest('.ip-eg');
+  if(box) box.classList.toggle('collapsed');
 }
 /* 端口：留空 = 所有端口；否则「80」「100-200」或它们的逗号/全角逗号/顿号组合，最多 64 段 */
 function validPort(v){

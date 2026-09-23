@@ -161,15 +161,25 @@ body.theme-dark .demo-banner code{background:rgba(0,0,0,.3);color:#ffe3ad}
 .ip-hint.ok b{color:var(--accent);font-weight:600}
 .ip-hint.err{color:var(--danger);border-color:rgba(244,99,107,.34);background:rgba(244,99,107,.07)}
 
-/* 填写示例：左侧渐变光条 + 双列对齐（示例码 / 说明） */
-.ip-eg{margin:10px 0 16px;padding:12px 14px 11px;border-radius:12px;position:relative;overflow:hidden;
+/* 填写示例：左侧渐变光条 + 双列对齐（示例码 / 说明）；默认收起、可点击展开 */
+.ip-eg{margin:8px 0 14px;padding:0;border-radius:11px;position:relative;overflow:hidden;
   background:linear-gradient(180deg,var(--panel2),var(--panel));
   border:1px solid var(--line2);box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}
-.ip-eg::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+.ip-eg::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;z-index:1;
   background:linear-gradient(180deg,var(--accent),var(--accent2));opacity:.8}
-.ip-eg-hd{display:flex;align-items:baseline;gap:8px;margin:0 0 10px 3px}
+/* 标题栏（可点击切换展开 / 收起） */
+.ip-eg-toggle{position:relative;z-index:1;display:flex;align-items:center;gap:8px;
+  padding:8px 12px 8px 13px;cursor:pointer;user-select:none;transition:background .18s}
+.ip-eg-toggle:hover{background:rgba(128,128,128,.07)}
+.ip-eg-chev{width:14px;height:14px;color:var(--dim);margin-left:auto;flex:none;
+  transition:transform .28s var(--ease)}
+.ip-eg.collapsed .ip-eg-chev{transform:rotate(-90deg)}
 .ip-eg-t{font-size:12px;font-weight:600;color:var(--txt);letter-spacing:.4px}
 .ip-eg-s{font-size:10.5px;color:var(--faint)}
+/* 折叠动画（grid-rows 0fr ↔ 1fr 平滑过渡） */
+.ip-eg-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows .3s var(--ease)}
+.ip-eg.collapsed .ip-eg-body{grid-template-rows:0fr}
+.ip-eg-inner{overflow:hidden;padding:2px 12px 11px 13px}
 .ip-eg-rows{display:grid;grid-template-columns:max-content 1fr;gap:6px 11px;align-items:center}
 .ip-eg-row{display:contents}
 .ip-eg code{font-family:Consolas,"Courier New",monospace;font-size:11px;line-height:1;white-space:nowrap;
@@ -178,7 +188,7 @@ body.theme-dark .demo-banner code{background:rgba(0,0,0,.3);color:#ffe3ad}
 .ip-eg-row.key code{color:var(--warn);background:rgba(245,181,68,.12);border-color:rgba(245,181,68,.42)}
 .ip-eg-row span{font-size:11.5px;color:var(--dim);line-height:1.5}
 .ip-eg-row b{color:var(--txt);font-weight:600}
-.ip-eg-fn{margin:10px 0 0 3px;padding-top:9px;border-top:1px dashed var(--line2);
+.ip-eg-fn{margin:8px 0 0;padding-top:8px;border-top:1px dashed var(--line2);
   font-size:11px;color:var(--faint);line-height:1.55}
 /* 两列表单行（新增/编辑账号、VPN、目的地包等弹窗内的成对字段） */
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
