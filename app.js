@@ -955,8 +955,8 @@ function poolForm(id){
     ? ps.map(v=>`<span class="tag pool">${v}</span>`).join('')
     : `<span class="tag proto-empty">未选择协议</span>`;
   return `<div class="field"><label>名称</label><input name="name" value="${esc(p.name)}" ${ro?'disabled':''} placeholder="如：数据库-MySQL"><div class="field-err"></div></div>
-    <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="x.x.x.5" onblur="ipPreviewTick()"><div class="field-err"></div></div>
-    <div class="field"><label>子网掩码（可空）</label><input name="mask" value="" ${ro?'disabled':''} placeholder="255.255.255.0" onblur="ipPreviewTick()"><div class="field-err"></div></div></div>
+    <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="x.x.x.5" oninput="ipPreviewTick()"><div class="field-err"></div></div>
+    <div class="field"><label>子网掩码（可空）</label><input name="mask" value="" ${ro?'disabled':''} placeholder="255.255.255.0" oninput="ipPreviewTick()"><div class="field-err"></div></div></div>
     <div class="ip-preview" id="ipPreview">${ipPreviewHTML(p.ip, '')}</div>
     ${ipExamplesHTML()}
     <div class="field"><label>端口或区间，用逗号分隔</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口"><div class="field-err"></div></div>
