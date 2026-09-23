@@ -955,8 +955,8 @@ function poolForm(id){
     ? ps.map(v=>`<span class="tag pool">${v}</span>`).join('')
     : `<span class="tag proto-empty">未选择协议</span>`;
   return `<div class="field"><label>名称</label><input name="name" value="${esc(p.name)}" ${ro?'disabled':''} placeholder="如：数据库-MySQL"><div class="field-err"></div></div>
-    <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="x.x.x.5" oninput="ipPreviewTick()"><div class="field-err"></div></div>
-    <div class="field"><label>子网掩码（可空）</label><input name="mask" value="" ${ro?'disabled':''} placeholder="255.255.255.0" oninput="ipPreviewTick()"><div class="field-err"></div></div></div>
+    <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="x.x.x.5"><div class="field-err"></div></div>
+    <div class="field"><label>子网掩码（可空）</label><input name="mask" value="" ${ro?'disabled':''} placeholder="255.255.255.0"><div class="field-err"></div></div></div>
     <div class="ip-preview" id="ipPreview">${ipPreviewHTML(p.ip, '')}</div>
     ${ipExamplesHTML()}
     <div class="field"><label>端口或区间，用逗号分隔</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口"><div class="field-err"></div></div>
@@ -1520,7 +1520,7 @@ function ipExamplesHTML(){
     ['x.x.x.5,x.x.x.9', '逗号', '多条一起授权',                                      0],
   ];
   return `<div class="ip-eg collapsed" id="ipEg">
-      <div class="ip-eg-toggle" onclick="toggleIpEg(this)" title="展开 / 收起示例">
+      <div class="ip-eg-toggle" title="展开 / 收起示例">
         <svg class="ip-eg-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
         <span class="ip-eg-t">填写示例</span>
         <span class="ip-eg-s">x 为 0–255 的任意数字</span>
@@ -2073,6 +2073,20 @@ document.addEventListener('input', e=> onLayerInput(e.target));
     if(saved.destTab==='pool'||saved.destTab==='pkg') ui.destTab = saved.destTab;
     if(saved.auditTab==='access'||saved.auditTab==='audit') ui.auditTab = saved.auditTab;
     if(saved.acctTab==='platform'||saved.acctTab==='vpn') ui.acctTab = saved.acctTab;
+  }
+  /* 事件委托：IP 预览实时刷新 + 示例卡片折叠展开。
+     注意：server.js 设了 `script-src 'self'`，内联 on* 处理器会被 CSP 拦截，
+     因此不能用 onclick/oninput，必须改用 addEventListener（委托到常驻的 #layer）。 */
+  const _ly = document.getElementById('layer');
+  if(_ly){
+    _ly.addEventListener('input', e=>{
+      const t = e.target;
+      if(t && (t.name==='ip' || t.name==='mask')) ipPreviewTick();
+    });
+    _ly.addEventListener('click', e=>{
+      const t = e.target.closest && e.target.closest('.ip-eg-toggle');
+      if(t) toggleIpEg(t);
+    });
   }
   render();
 })();
