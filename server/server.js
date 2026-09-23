@@ -346,6 +346,105 @@ function parsePorts(raw) {
   return { spec: [...new Set(out)].join(',') };                   // 去重并保持顺序
 }
 
+/* ============ IP 规格解析（与端口同样支持范围与逗号分隔，并支持子网） ============
+ * 支持写法（可混用、逗号或全角逗号分隔）：
+ *   10.0.20.5                     单台主机            -> 10.0.20.5/32
+ *   192.168.3.0                   末位为 0           -> 192.168.3.0/24（整个网段）
+ *   192.168.3.0/26                显式 CIDR          -> 192.168.3.0/26
+ *   192.168.3.5/255.255.255.192   点分掩码           -> 192.168.3.0/26
+ *   10.0.20.5-10.0.20.9           区间               -> 最小 CIDR 覆盖（精确、不越权）
+ * 表单「子网掩码」字段：填写时该条 IP 一律按掩码收敛为网段；留空时仅「末位为 0」按 /24 处理。
+ * 返回 { cidrs:[...], display:'归一化规格', hosts:N } 或 { error }。 */
+const IPV4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+function ip2int(s) {
+  const m = IPV4_RE.exec(String(s == null ? '' : s).trim());
+  if (!m) return null;
+  const p = m.slice(1).map(Number);
+  if (p.some(x => x > 255)) return null;
+  return ((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]) >>> 0;
+}
+function int2ip(n) {
+  n = n >>> 0;
+  return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+}
+function prefix2mask(prefix) {
+  if (prefix <= 0) return 0;
+  if (prefix >= 32) return 0xFFFFFFFF;
+  return (~((1 << (32 - prefix)) - 1)) >>> 0;
+}
+/* 掩码 -> 前缀长度；接受 '24' / '255.255.255.0'；非法或非连续掩码返回 null */
+function mask2prefix(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return null;
+  if (/^\d{1,2}$/.test(s)) { const n = Number(s); return n >= 0 && n <= 32 ? n : null; }
+  const v = ip2int(s);
+  if (v === null) return null;
+  const inv = (~v) >>> 0;
+  if (((inv + 1) & inv) !== 0) return null;            // 必须「连续 1 后连续 0」
+  return v === 0 ? 0 : 32 - Math.round(Math.log2(inv + 1));
+}
+/* 区间 -> 最小 CIDR 覆盖（精确覆盖，不引入越权地址） */
+function range2cidrs(start, end) {
+  const out = [];
+  let s = start >>> 0;
+  const e = end >>> 0;
+  while (s <= e) {
+    let align = 32;
+    if (s !== 0) { let t = 0; while (t < 32 && ((s >>> t) & 1) === 0) t++; align = t; }
+    let size = align;
+    while (size > 0 && (s + Math.pow(2, size) - 1) > e) size--;
+    out.push(`${int2ip(s)}/${32 - size}`);
+    s = s + Math.pow(2, size);
+  }
+  return out;
+}
+function parseIpSpec(raw, maskRaw) {
+  let formPrefix = null;
+  if (String(maskRaw == null ? '' : maskRaw).trim()) {
+    formPrefix = mask2prefix(maskRaw);
+    if (formPrefix === null) return { error: `子网掩码格式不正确：${maskRaw}（如 255.255.255.0 或 24）` };
+  }
+  const s = String(raw == null ? '' : raw).replace(/[，、]/g, ',').trim();
+  if (!s) return { error: 'IP 必填' };
+  /* 不截断、直接拒绝：截断会悄悄丢掉尾部条目，可能授权出与预期不符的范围 */
+  if (s.length > 255) return { error: 'IP 规格过长（最多 255 字符），请拆分为多条目的地' };
+  const parts = s.split(',').map(x => x.trim()).filter(Boolean);
+  if (!parts.length) return { error: 'IP 必填' };
+  if (parts.length > 64) return { error: 'IP 条目过多（最多 64 段）' };
+  const cidrs = [], disp = [];
+  for (const p of parts) {
+    const rng = p.match(/^([0-9.]+)\s*-\s*([0-9.]+)$/);
+    if (rng) {
+      const a = ip2int(rng[1]), b = ip2int(rng[2]);
+      if (a === null || b === null) return { error: `IP 格式不正确：${p}` };
+      if (a > b) return { error: `IP 区间起止颠倒：${p}（应写成 小-大，如 10.0.20.5-10.0.20.9）` };
+      cidrs.push(...range2cidrs(a, b));
+      disp.push(`${int2ip(a)}-${int2ip(b)}`);
+      continue;
+    }
+    let ipPart = p, inlinePrefix = null;
+    const slash = p.indexOf('/');
+    if (slash >= 0) {
+      ipPart = p.slice(0, slash).trim();
+      inlinePrefix = mask2prefix(p.slice(slash + 1));
+      if (inlinePrefix === null) return { error: `子网掩码格式不正确：${p}` };
+    }
+    const ip = ip2int(ipPart);
+    if (ip === null) return { error: `IP 格式不正确：${p}（应为 10.0.20.5、192.168.3.0、10.0.20.5-10.0.20.9 或它们的逗号组合）` };
+    let prefix;
+    if (inlinePrefix !== null) prefix = inlinePrefix;        // ① 行内 /26、/255.255.255.0 优先
+    else if (formPrefix !== null) prefix = formPrefix;       // ② 表单掩码字段
+    else if ((ip & 255) === 0) prefix = 24;                  // ③ 末位为 0 → 整段（默认 /24）
+    else prefix = 32;                                        // ④ 其余为单机
+    const base = (ip & prefix2mask(prefix)) >>> 0;
+    cidrs.push(`${int2ip(base)}/${prefix}`);
+    disp.push(prefix === 32 ? int2ip(ip) : `${int2ip(base)}/${prefix}`);
+  }
+  const uniq = [...new Set(cidrs)];
+  const hosts = uniq.reduce((n, c) => n + Math.pow(2, 32 - Number(c.split('/')[1])), 0);
+  return { cidrs: uniq, display: disp.join(','), hosts };
+}
+
 /* 协议支持多选：'TCP' / 'UDP' / 'TCP,UDP'（拆分校验、去重、固定 TCP 在前） */
 const normProto = v => {
   const ps = String(v || 'TCP').split(',').map(s => s.trim().toUpperCase())
@@ -356,12 +455,14 @@ const normProto = v => {
 };
 
 app.post('/api/pools', attach, need('dest', 'rw'), async (req, res) => {
-  const name = str(req.body.name, 64), ip = str(req.body.ip, 45);
+  const name = str(req.body.name, 64);
   const proto = normProto(req.body.proto);
   const pr = parsePorts(req.body.port);
   if (pr.error) return bad(res, pr.error);
-  if (!name || !ip) return bad(res, '名称与 IP 必填');
-  if (!IP_RE.test(ip)) return bad(res, 'IP 格式不正确');
+  if (!name) return bad(res, '名称与 IP 必填');
+  const ips = parseIpSpec(req.body.ip, req.body.mask);
+  if (ips.error) return bad(res, ips.error);
+  const ip = ips.display;
   try {
     const r = await D.run(`INSERT INTO dest_pool (name, ip, port, proto, descr) VALUES (?,?,?,?,?)`,
       [name, ip, pr.spec, proto, str(req.body.descr, 128) || null]);
@@ -373,11 +474,13 @@ app.post('/api/pools', attach, need('dest', 'rw'), async (req, res) => {
   }
 });
 app.put('/api/pools/:id', attach, need('dest', 'rw'), async (req, res) => {
-  const name = str(req.body.name, 64), ip = str(req.body.ip, 45);
+  const name = str(req.body.name, 64);
   const pr = parsePorts(req.body.port);
   if (pr.error) return bad(res, pr.error);
-  if (!name || !ip) return bad(res, '名称与 IP 必填');
-  if (!IP_RE.test(ip)) return bad(res, 'IP 格式不正确');
+  if (!name) return bad(res, '名称与 IP 必填');
+  const ips = parseIpSpec(req.body.ip, req.body.mask);
+  if (ips.error) return bad(res, ips.error);
+  const ip = ips.display;
   try {
     await q(`UPDATE dest_pool SET name=?, ip=?, port=?, proto=?, descr=? WHERE id=?`,
       [name, ip, pr.spec, normProto(req.body.proto),
@@ -641,21 +744,23 @@ app.get('/api/gateway/peers', asyncHandler(async (req, res) => {
     return res.status(401).json({ error: 'invalid token' });
   res.json({ peers: await peerRows() });
 }));
-/* 汇总某用户被授权的目标 IP（/32），用于客户端 AllowedIPs 自动路由。
-   复用与 /api/gateway/grants 相同的 pool/pkg 展开逻辑。 */
+/* 汇总某用户被授权的目标网段（CIDR），用于客户端 AllowedIPs 自动路由。
+   复用与 /api/gateway/grants 相同的 pool/pkg 展开逻辑。
+   目的地 IP 支持「单机 / 末位0整段 / 显式掩码 / 区间 / 逗号组合」，这里统一展开为 CIDR 列表。 */
+function specCidrs(spec) {
+  const r = parseIpSpec(spec, '');
+  return r.error ? [] : r.cidrs;
+}
 async function grantedDestIps(vpnId) {
   const gs = await q(`SELECT kind, ref_id FROM vpn_grant WHERE vpn_id=?`, [vpnId]);
   const ips = new Set();
+  const add = p => { if (p && p.ip) for (const c of specCidrs(p.ip)) ips.add(c); };
   for (const g of gs) {
     if (g.kind === 'pool') {
-      const p = await q1(`SELECT ip FROM dest_pool WHERE id=?`, [g.ref_id]);
-      if (p && p.ip) ips.add(p.ip);
+      add(await q1(`SELECT ip FROM dest_pool WHERE id=?`, [g.ref_id]));
     } else {
       const items = await q(`SELECT pool_id FROM dest_package_item WHERE package_id=?`, [g.ref_id]);
-      for (const it of items) {
-        const p = await q1(`SELECT ip FROM dest_pool WHERE id=?`, [it.pool_id]);
-        if (p && p.ip) ips.add(p.ip);
-      }
+      for (const it of items) add(await q1(`SELECT ip FROM dest_pool WHERE id=?`, [it.pool_id]));
     }
   }
   return [...ips];
@@ -683,10 +788,10 @@ async function buildConf(vpnId, req) {
     // 黑名单模式：默认放行全部网段（全量走隧道），仅网关侧 deny 列表被禁止。
     allowParts.push('0.0.0.0/0');
   } else {
-    // AllowedIPs = env 基础路由 + 该用户被授权的目标 IP(/32)。
+    // AllowedIPs = env 基础路由 + 该用户被授权的目标网段（CIDR，已按目的地规格展开）。
     // 这样在网页授权某内网目标后，客户端会自动把该目标路由进隧道，
     // 不再需要手动在 WG_CLIENT_ALLOWED 里列出所有内网段（否则跨子网目标连不通）。
-    for (const ip of await grantedDestIps(Number(vpnId))) allowParts.push(ip + '/32');
+    for (const cidr of await grantedDestIps(Number(vpnId))) allowParts.push(cidr);
   }
   // 全代理模式：客户端把全部流量送进隧道 —— 内网仍由网关按权限控制，外网经网关 NAT 转发出去
   if (v.full_proxy) allowParts.push('0.0.0.0/0');
@@ -852,7 +957,9 @@ app.get('/api/gateway/grants', asyncHandler(async (req, res) => {
       const k = `${p.ip}:${ports}:${p.proto}`;
       if (seen.has(k)) return;
       seen.add(k);
-      arr.push({ ip: p.ip, ports, proto: p.proto });
+      /* cidrs：把 IP 规格（单机 / 末位0整段 / 掩码 / 区间 / 逗号组合）展开为 CIDR 列表，
+         供网关渲染 nftables 的 ip daddr 集合；ip 字段保留原始规格用于展示与日志。 */
+      arr.push({ ip: p.ip, cidrs: specCidrs(p.ip), ports, proto: p.proto });
     };
     for (const g of gs) {
       // deny 模式下：勾选的目的地进入 deny（禁止）清单；allow 模式下进入 allow（放行）清单
@@ -923,6 +1030,12 @@ async function initDb() {
     if (!cols.includes('last_login_at')) await D.run(`ALTER TABLE vpn_account ADD COLUMN last_login_at VARCHAR(32) NULL`);
     if (!cols.includes('last_login_ip')) await D.run(`ALTER TABLE vpn_account ADD COLUMN last_login_ip VARCHAR(45) NULL`);
   } catch (e) { console.error('[WARN] 字段迁移失败：', e.message); }
+  /* dest_pool.ip 由「单个 IP」升级为「IP 规格」（单机 / 末位0整段 / 显式掩码 / 区间 / 逗号组合），
+     列宽 45 -> 255。SQLite 用 TEXT 无长度约束，无需处理。 */
+  try {
+    if (D.name === 'mysql' && (await D.columns('dest_pool')).includes('ip'))
+      await D.run(`ALTER TABLE dest_pool MODIFY COLUMN ip VARCHAR(255) NOT NULL`);
+  } catch (e) { console.error('[WARN] dest_pool.ip 加宽失败：', e.message); }
   /* 不设任何固定默认口令。未配置 ADMIN_INIT_PWD 时，admin 以「口令未设置」状态创建
      （pwd_hash 存空串），首次打开平台会引导在网页上设置口令。
      这样既避免"源码公开 ⇒ 后台口令公开"，也避免初始口令出现在日志/终端历史里。 */

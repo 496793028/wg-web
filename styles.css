@@ -150,6 +150,36 @@ body.theme-dark .demo-banner code{background:rgba(0,0,0,.3);color:#ffe3ad}
   padding:10px 12px;border-radius:10px;outline:none;transition:border-color .2s,box-shadow .2s}
 .field input:focus,.field select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(76,141,255,.18)}
 .hint{font-size:11.5px;color:var(--faint);margin-top:6px}
+/* ── IP 规格：实时预览 + 填写示例卡片（与平台同源的「面板 + 细描边 + 侧光」语言） ── */
+.ip-preview{margin:-2px 0 0}
+.ip-preview:empty{display:none}
+.ip-hint{display:block;font-size:11.5px;color:var(--faint);line-height:1.55;
+  padding:8px 11px;border-radius:9px;background:var(--panel2);border:1px solid var(--line)}
+.ip-hint code{font-family:Consolas,"Courier New",monospace;font-size:11px;padding:1px 5px;border-radius:5px;
+  background:var(--line);color:var(--txt)}
+.ip-hint.ok{color:var(--dim);border-color:rgba(76,141,255,.32);background:rgba(76,141,255,.07)}
+.ip-hint.ok b{color:var(--accent);font-weight:600}
+.ip-hint.err{color:var(--danger);border-color:rgba(244,99,107,.34);background:rgba(244,99,107,.07)}
+
+/* 填写示例：左侧渐变光条 + 双列对齐（示例码 / 说明） */
+.ip-eg{margin:10px 0 16px;padding:12px 14px 11px;border-radius:12px;position:relative;overflow:hidden;
+  background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border:1px solid var(--line2);box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}
+.ip-eg::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,var(--accent),var(--accent2));opacity:.8}
+.ip-eg-hd{display:flex;align-items:baseline;gap:8px;margin:0 0 10px 3px}
+.ip-eg-t{font-size:12px;font-weight:600;color:var(--txt);letter-spacing:.4px}
+.ip-eg-s{font-size:10.5px;color:var(--faint)}
+.ip-eg-rows{display:grid;grid-template-columns:max-content 1fr;gap:6px 11px;align-items:center}
+.ip-eg-row{display:contents}
+.ip-eg code{font-family:Consolas,"Courier New",monospace;font-size:11px;line-height:1;white-space:nowrap;
+  padding:5px 9px;border-radius:7px;color:var(--accent);
+  background:rgba(76,141,255,.10);border:1px solid rgba(76,141,255,.26)}
+.ip-eg-row.key code{color:var(--warn);background:rgba(245,181,68,.12);border-color:rgba(245,181,68,.42)}
+.ip-eg-row span{font-size:11.5px;color:var(--dim);line-height:1.5}
+.ip-eg-row b{color:var(--txt);font-weight:600}
+.ip-eg-fn{margin:10px 0 0 3px;padding-top:9px;border-top:1px dashed var(--line2);
+  font-size:11px;color:var(--faint);line-height:1.55}
 /* 两列表单行（新增/编辑账号、VPN、目的地包等弹窗内的成对字段） */
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
 .grid2>.field{margin-bottom:0}

@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS sys_session (
 CREATE TABLE IF NOT EXISTS dest_pool (
   id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name       VARCHAR(64)  NOT NULL,
-  ip         VARCHAR(45)  NOT NULL,
+  ip         VARCHAR(255) NOT NULL COMMENT '目标 IP 规格：单机 10.0.20.5；末位0整段 192.168.3.0 按掩码记为 192.168.3.0/24；显式掩码 192.168.3.0/26；区间 10.0.20.5-10.0.20.9；以上可逗号组合',
   port       VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '端口规格：空=全部端口；支持单端口/区间/逗号分隔，如 9,100-200',
   proto      VARCHAR(16) NOT NULL DEFAULT 'TCP',
   descr      VARCHAR(128) NULL,

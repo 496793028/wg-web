@@ -143,6 +143,22 @@ def _port_match(spec):
     return ' dport { %s }' % ', '.join(segs)
 
 
+def _daddr(a):
+    """目的地 -> nft「ip daddr」匹配值。
+
+    优先用服务端展开好的 cidrs（单机 / 末位0整段 / 掩码 / 区间 / 逗号组合 → CIDR 列表），
+    多目标时生成 nft 集合 { a, b, c }；无 cidrs 时退回旧字段 ip（单值），兼容旧版 grants。
+    返回 None 表示该条目无有效地址，调用方应跳过。
+    """
+    cs = a.get('cidrs')
+    if not cs:
+        cs = [a.get('ip')] if a.get('ip') else []
+    cs = [str(c).strip() for c in cs if str(c or '').strip()]
+    if not cs:
+        return None
+    return cs[0] if len(cs) == 1 else '{ %s }' % ', '.join(cs)
+
+
 def render_nft(iface, users, log_limit=None):
     """生成完整 nftables 执行规则集（单事务原子重载）。返回 (文本, 放行规则数)。
 
@@ -181,10 +197,14 @@ def render_nft(iface, users, log_limit=None):
                 if pm is None:
                     log('skip bad port spec: %r' % (a.get('ports', a.get('port', '')),))
                     continue
+                da = _daddr(a)
+                if da is None:
+                    log('skip empty dest: %r' % (a,))
+                    continue
                 for proto in _protos(a.get('proto')):
                     L.append('        iifname "%s" ip saddr %s ip daddr %s %s%s '
                              'ct state new log prefix "vpn-flow DENY "%s drop'
-                             % (iface, ip, a.get('ip'), proto, pm, lim))
+                             % (iface, ip, da, proto, pm, lim))
                     n += 1
             L.append('        iifname "%s" ip saddr %s ct state new log prefix "vpn-flow ALLOW "%s accept'
                      % (iface, ip, lim))
@@ -202,10 +222,14 @@ def render_nft(iface, users, log_limit=None):
                 if pm is None:
                     log('skip bad port spec: %r' % (a.get('ports', a.get('port', '')),))
                     continue
+                da = _daddr(a)
+                if da is None:
+                    log('skip empty dest: %r' % (a,))
+                    continue
                 for proto in _protos(a.get('proto')):
                     L.append('        iifname "%s" ip saddr %s ip daddr %s %s%s '
                              'ct state new log prefix "vpn-flow ALLOW "%s accept'
-                             % (iface, ip, a.get('ip'), proto, pm, lim))
+                             % (iface, ip, da, proto, pm, lim))
                     n += 1
             if u.get('full_proxy'):
                 # 全代理：内网目的地（INTERNAL_NETS 之内）仍受上方 allow 清单约束；

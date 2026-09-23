@@ -955,8 +955,11 @@ function poolForm(id){
     ? ps.map(v=>`<span class="tag pool">${v}</span>`).join('')
     : `<span class="tag proto-empty">未选择协议</span>`;
   return `<div class="field"><label>名称</label><input name="name" value="${esc(p.name)}" ${ro?'disabled':''} placeholder="如：数据库-MySQL"><div class="field-err"></div></div>
-    <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="10.0.20.5"><div class="field-err"></div></div>
-    <div class="field"><label>端口或区间，用逗号分隔</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口"><div class="field-err"></div></div></div>
+    <div class="grid2"><div class="field"><label>IP 地址</label><input name="ip" value="${esc(p.ip)}" ${ro?'disabled':''} placeholder="x.x.x.5" oninput="ipPreviewTick()"><div class="field-err"></div></div>
+    <div class="field"><label>子网掩码（可空）</label><input name="mask" value="" ${ro?'disabled':''} placeholder="255.255.255.0" oninput="ipPreviewTick()"><div class="field-err"></div></div></div>
+    <div class="ip-preview" id="ipPreview">${ipPreviewHTML(p.ip, '')}</div>
+    ${ipExamplesHTML()}
+    <div class="field"><label>端口或区间，用逗号分隔</label><input name="port" value="${esc(p.port)}" ${ro?'disabled':''} placeholder="所有端口"><div class="field-err"></div></div>
     <div class="field"><label>协议（可多选，必须至少勾选一种）</label>
       <div class="proto-chks">
         ${['TCP','UDP'].map(v=>`<label class="proto-chk ${chk(v)?'on':''}${ro?' ro':''}">
@@ -1400,14 +1403,129 @@ function clearWarnVisuals(){
   $$('#layer .warn-mark').forEach(e=>e.classList.remove('warn-mark'));
   document.querySelector('#layer .unsaved-pop')?.remove();
 }
-/* ---- 前端输入校验（与服务端 parsePorts / IP_RE 同规则，提交前给出行内红框反馈） ---- */
-/* IP：点分十进制四段、每段 0-255（比服务端仅校验格式更严，前端通过则后端必过） */
+/* ---- 前端输入校验（与服务端 parseIpSpec / parsePorts 同规则，提交前给出行内红框反馈） ---- */
+/* IP 规格：单机 10.0.20.5；末位为 0 按掩码成整段（192.168.3.0 → 192.168.3.0/24）；
+   显式掩码 192.168.3.0/26 或 192.168.3.0/255.255.255.192；区间 10.0.20.5-10.0.20.9；
+   以上可用逗号（含全角）组合。mask 为表单「子网掩码」字段，可空。 */
 const IP_FRONT_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
-function validIP(v){
-  const m = IP_FRONT_RE.exec(String(v==null?'':v).trim());
-  if(!m) return 'IP 格式不正确（应为点分十进制，如 10.0.20.5）';
-  if([m[1],m[2],m[3],m[4]].some(x=>Number(x)>255)) return 'IP 每一段需在 0-255 之间';
+const ip4ok = s => { const m = IP_FRONT_RE.exec(String(s||'').trim()); return !!m && [m[1],m[2],m[3],m[4]].every(x=>Number(x)<=255); };
+const ip2n = s => { const m = IP_FRONT_RE.exec(String(s).trim()).slice(1).map(Number); return ((m[0]<<24)|(m[1]<<16)|(m[2]<<8)|m[3])>>>0; };
+const n2ip = n => { n=n>>>0; return [(n>>>24)&255,(n>>>16)&255,(n>>>8)&255,n&255].join('.'); };
+/* 掩码 -> 前缀长度：'24' 或点分；点分必须「连续 1 后连续 0」，非法返回 null。
+   与服务端 mask2prefix 同规则，保证「前端通过 ⇒ 后端必过」。 */
+function maskToPrefix(s){
+  s = String(s||'').trim();
+  if(!s) return null;
+  if(/^\d{1,2}$/.test(s)){ const n=Number(s); return n<=32?n:null; }
+  if(!ip4ok(s)) return null;
+  let bits=0, seenZero=false;
+  for(const x of s.split('.').map(Number))
+    for(let i=7;i>=0;i--){ if((x>>i)&1){ if(seenZero) return null; bits++; } else seenZero=true; }
+  return bits;
+}
+const prefixMask = p => p<=0 ? 0 : (p>=32 ? 0xFFFFFFFF : (~((1<<(32-p))-1))>>>0);
+/* 区间 → 最小 CIDR 覆盖（精确，不越权） */
+function range2cidrs(a,b){
+  const out=[]; let s=a>>>0; const e=b>>>0;
+  while(s<=e){
+    let align=32;
+    if(s!==0){ let t=0; while(t<32 && ((s>>>t)&1)===0) t++; align=t; }
+    let size=align;
+    while(size>0 && (s+Math.pow(2,size)-1)>e) size--;
+    out.push(`${n2ip(s)}/${32-size}`);
+    s = s + Math.pow(2,size);
+  }
+  return out;
+}
+/* 把 IP 规格展开为 CIDR 列表；出错返回 { error }（预览与校验共用） */
+function ipExpand(v, mask){
+  let formPrefix=null;
+  if(String(mask||'').trim()){
+    formPrefix = maskToPrefix(mask);
+    if(formPrefix===null) return { error:`子网掩码格式不正确：${mask}（如 255.255.255.0 或 24）` };
+  }
+  const s = String(v==null?'':v).replace(/[，、]/g,',').trim();
+  if(!s) return { error:'IP 必填' };
+  if(s.length > 255) return { error:'IP 规格过长（最多 255 字符），请拆分为多条目的地' };
+  const parts = s.split(',').map(x=>x.trim()).filter(Boolean);
+  if(!parts.length) return { error:'IP 必填' };
+  if(parts.length>64) return { error:'IP 条目过多（最多 64 段）' };
+  const cidrs=[], disp=[];
+  for(const p of parts){
+    const rng = p.match(/^([0-9.]+)\s*-\s*([0-9.]+)$/);
+    if(rng){
+      if(!ip4ok(rng[1])||!ip4ok(rng[2])) return { error:`IP 格式不正确：${p}` };
+      const a=ip2n(rng[1]), b=ip2n(rng[2]);
+      if(a>b) return { error:`IP 区间起止颠倒：${p}（应写成 小-大，如 10.0.20.5-10.0.20.9）` };
+      cidrs.push(...range2cidrs(a,b)); disp.push(`${n2ip(a)}-${n2ip(b)}`);
+      continue;
+    }
+    let ipPart=p, inline=null;
+    const sl = p.indexOf('/');
+    if(sl>=0){ ipPart=p.slice(0,sl).trim(); inline=maskToPrefix(p.slice(sl+1)); if(inline===null) return { error:`子网掩码格式不正确：${p}` }; }
+    if(!ip4ok(ipPart)) return { error:`IP 格式不正确：${p}（应为 10.0.20.5、192.168.3.0、10.0.20.5-10.0.20.9 或它们的逗号组合）` };
+    const ip = ip2n(ipPart);
+    let prefix;
+    if(inline!==null) prefix=inline;              // ① 行内 /26、/255.255.255.0 优先
+    else if(formPrefix!==null) prefix=formPrefix; // ② 表单掩码字段
+    else if((ip&255)===0) prefix=24;              // ③ 末位为 0 → 整段（默认 /24）
+    else prefix=32;                               // ④ 其余为单机
+    const base=(ip & prefixMask(prefix))>>>0;
+    cidrs.push(`${n2ip(base)}/${prefix}`);
+    disp.push(prefix===32 ? n2ip(ip) : `${n2ip(base)}/${prefix}`);
+  }
+  const uniq=[...new Set(cidrs)];
+  const hosts=uniq.reduce((n,c)=>n+Math.pow(2,32-Number(c.split('/')[1])),0);
+  return { cidrs:uniq, display:disp.join(','), hosts };
+}
+function validIP(v, mask){
+  const r = ipExpand(v, mask);
+  return r.error || '';
+}
+/* 单个主机 IP：用于「VPN 地址」这类只允许单机的字段（不接受网段 / 区间 / 逗号组合）。
+   与 /api/vpn 的 IP_RE 校验对齐，避免前端放行、后端拒绝。 */
+function validSingleIP(v){
+  const s = String(v==null?'':v).trim();
+  if(!s) return '';
+  if(!ip4ok(s)) return 'IP 格式不正确（应为单机地址，如 10.100.0.11）';
   return '';
+}
+/* IP 输入框下方的实时预览：把规格翻译成人话（授权范围 / 规模）。留空时不占位（示例卡片另行常显）。 */
+function ipPreviewHTML(v, mask){
+  const s = String(v==null?'':v).trim();
+  if(!s) return '';
+  const r = ipExpand(v, mask);
+  if(r.error) return `<span class="ip-hint err">${esc(r.error)}</span>`;
+  const total = r.cidrs.length;
+  const hosts = r.hosts;
+  const scope = hosts >= Math.pow(2,24) ? `${hosts} 个地址（≥ /8，范围很大）`
+              : hosts >= 1024 ? `${hosts} 个地址`
+              : hosts > 2 ? `${hosts} 个地址（含网络/广播地址，实际可用 ${hosts-2} 台）`
+              : hosts === 1 ? `1 台设备（/32）` : `${hosts} 个地址`;
+  return `<span class="ip-hint ok">将授权 <b>${esc(r.display)}</b> —— ${esc(r.cidrs.join(', '))}${total>1?`（共 ${total} 段）`:''}，约 ${esc(scope)}</span>`;
+}
+/* 表单内 IP / 掩码输入变化时刷新预览（input 的 oninput 调用） */
+function ipPreviewTick(){
+  const ip = $('#layer [name="ip"]'), mk = $('#layer [name="mask"]'), box = $('#ipPreview');
+  if(!box || !ip) return;
+  box.innerHTML = ipPreviewHTML(ip.value, mk ? mk.value : '');
+}
+/* IP 填写示例卡片：示例一律用占位符（x 代表 0–255），不出现真实网段 */
+function ipExamplesHTML(){
+  const rows = [
+    ['x.x.x.5',         '单机', '只授权这一台',                                    0],
+    ['x.x.x.0',         '整段', '末位是 0 → 整个网段（按掩码，默认 255.255.255.0）', 1],
+    ['x.x.x.0/26',      '掩码', '自带掩码 → 只授权这一段',                          0],
+    ['x.x.x.5-x.x.x.9', '区间', '只授权这 5 个地址',                                0],
+    ['x.x.x.5,x.x.x.9', '逗号', '多条一起授权',                                      0],
+  ];
+  return `<div class="ip-eg">
+      <div class="ip-eg-hd"><span class="ip-eg-t">填写示例</span><span class="ip-eg-s">x 为 0–255 的任意数字</span></div>
+      <div class="ip-eg-rows">
+        ${rows.map(([c,k,d,key])=>`<div class="ip-eg-row${key?' key':''}"><code>${c}</code><span><b>${k}</b> · ${d}</span></div>`).join('')}
+      </div>
+      <div class="ip-eg-fn">单机不会被默认掩码放大；区间只覆盖写出的这一段。</div>
+    </div>`;
 }
 /* 端口：留空 = 所有端口；否则「80」「100-200」或它们的逗号/全角逗号/顿号组合，最多 64 段 */
 function validPort(v){
@@ -1670,7 +1788,7 @@ const ACT = {
   'pool-new': ()=> modal({title:'新增 IP-端口', body:poolForm(null), onOk: async ()=>{
       if(!validateRequired([{n:'name',label:'名称'},{n:'ip',label:'IP 地址'}])) return false;
       const g=readForm();
-      const ipErr=validIP(g.ip);
+      const ipErr=validIP(g.ip, g.mask);
       if(ipErr){ setFieldError($('#layer [name="ip"]'), ipErr); shakeLayer(); return false; }
       const portErr=validPort(g.port);
       if(portErr){ setFieldError($('#layer [name="port"]'), portErr); shakeLayer(); return false; }
@@ -1683,7 +1801,7 @@ const ACT = {
       if(!canEdit('dest')) return;
       if(!validateRequired([{n:'name',label:'名称'},{n:'ip',label:'IP 地址'}])) return false;
       const g=readForm();
-      const ipErr=validIP(g.ip);
+      const ipErr=validIP(g.ip, g.mask);
       if(ipErr){ setFieldError($('#layer [name="ip"]'), ipErr); shakeLayer(); return false; }
       const portErr=validPort(g.port);
       if(portErr){ setFieldError($('#layer [name="port"]'), portErr); shakeLayer(); return false; }
@@ -1732,7 +1850,7 @@ const ACT = {
   'vpn-new': ()=> modal({title:'新增 VPN 用户', body:vpnForm(), onOk: async ()=>{
       if(!validateRequired([{n:'name',label:'真实姓名'}])) return false;
       const g=readForm();
-      if(g.vpn_ip){ const ipErr=validIP(g.vpn_ip);
+      if(g.vpn_ip){ const ipErr=validSingleIP(g.vpn_ip);
         if(ipErr){ setFieldError($('#layer [name="vpn_ip"]'), ipErr); shakeLayer(); return false; } }
       const enable = !!($('#layer [name="login_enabled"]')||{}).checked;
       const payload = { name:g.name, vpn_ip:g.vpn_ip||'', note:g.note||'' };
