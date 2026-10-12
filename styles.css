@@ -701,6 +701,14 @@ body.theme-light .crop-stage{background:#e9edf3}
 /* 批量选择态优先于全代理紫色样式：选中时统一改为强调色描边 */
 .ucard.proxy.pick, .ucard.proxy.pick:hover{border-color:var(--accent);
   box-shadow:0 0 0 1px var(--accent) inset}
+/* 批量选择态优先于「全代理 + 黑名单」交替光晕：必须显式停掉动画。
+   CSS 动画的 border-color / box-shadow 由动画层给出，优先级高于任何普通声明
+   （包括上方两条 .pick 规则），所以双模式卡片选中时若不停动画，
+   halo-osc-card 会继续把金色↔紫色写进边框，蓝色描边被完全盖住。
+   实测：动画在跑时采样到一个周期内 140 种金/紫渐变色，蓝色一次都没出现；
+   停掉动画后边框恒为单一 .pick 蓝。 */
+.ucard.black.proxy.pick, .ucard.black.proxy.pick:hover{border-color:var(--accent);
+  box-shadow:0 0 0 1px var(--accent) inset; animation:none}
 /* 模式徽标尺寸与「正常」胶囊(.badge)保持一致 */
 .mode-badge{flex:none;display:inline-flex;align-items:center;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;
   background:var(--gold-soft);border:1px solid var(--gold-line);color:var(--gold);letter-spacing:.3px}
