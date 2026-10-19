@@ -701,14 +701,17 @@ body.theme-light .crop-stage{background:#e9edf3}
 /* 批量选择态优先于全代理紫色样式：选中时统一改为强调色描边 */
 .ucard.proxy.pick, .ucard.proxy.pick:hover{border-color:var(--accent);
   box-shadow:0 0 0 1px var(--accent) inset}
-/* 批量选择态优先于「全代理 + 黑名单」交替光晕：必须显式停掉动画。
+/* 批量选择态优先于「全代理 + 黑名单」交替光晕：必须去掉 halo。
    CSS 动画的 border-color / box-shadow 由动画层给出，优先级高于任何普通声明
-   （包括上方两条 .pick 规则），所以双模式卡片选中时若不停动画，
+   （包括上方两条 .pick 规则），所以双模式卡片选中时若不去掉 halo，
    halo-osc-card 会继续把金色↔紫色写进边框，蓝色描边被完全盖住。
-   实测：动画在跑时采样到一个周期内 140 种金/紫渐变色，蓝色一次都没出现；
-   停掉动画后边框恒为单一 .pick 蓝。 */
+   实测：动画在跑时采样到一个完整周期内 140 种金/紫渐变色，蓝色一次都没出现；
+   去掉 halo 后边框恒为单一 .pick 蓝。
+   注意这里用 `animation: rise …` 而不是 `animation: none`：
+   refresh() 每次点选都会重建整个网格、所有卡片重播入场动画，
+   若写成 none 则这张卡会「硬出现」，与其余卡片不一致。 */
 .ucard.black.proxy.pick, .ucard.black.proxy.pick:hover{border-color:var(--accent);
-  box-shadow:0 0 0 1px var(--accent) inset; animation:none}
+  box-shadow:0 0 0 1px var(--accent) inset; animation: rise .4s var(--ease) backwards}
 /* 模式徽标尺寸与「正常」胶囊(.badge)保持一致 */
 .mode-badge{flex:none;display:inline-flex;align-items:center;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;
   background:var(--gold-soft);border:1px solid var(--gold-line);color:var(--gold);letter-spacing:.3px}
@@ -738,8 +741,15 @@ body.theme-light .crop-stage{background:#e9edf3}
   0%,100%{ box-shadow:0 0 0 1px var(--gold-line), 0 0 28px var(--gold-glow), var(--card-shadow); }
   50%{ box-shadow:0 0 0 1px var(--proxy-line), 0 0 28px var(--proxy-glow), var(--card-shadow); }
 }
-.ucard.black.proxy{ animation:halo-osc-card 4s ease-in-out infinite; }
-.drawer.black.proxy{ animation:halo-osc-drawer 4s ease-in-out infinite; }
+/* ⚠️ animation 是「简写属性」（shorthand）：它会把该元素上 animation-name / duration /
+   delay / fill-mode / iteration-count 等**全部子属性一次性重置**。
+   之前直接写 `animation: halo-osc-card 4s …`，等价于把 `.ucard` 自带的 `rise` 入场动画、
+   `.drawer` 自带的 `slideL` 滑入动画整体抹掉 —— 表现为「黑+全代理」的卡片没有入场动画，
+   点开抽屉时也不滑入、而是硬弹出（其余卡片/抽屉都正常，只有这一种组合丢动画）。
+   正确做法是把原有动画一起列进列表：两个动画各管各的属性
+   （rise / slideL 管 transform + opacity，halo-osc-* 只管 border-color + box-shadow），互不冲突。 */
+.ucard.black.proxy{ animation: rise .4s var(--ease) backwards, halo-osc-card 4s ease-in-out infinite; }
+.drawer.black.proxy{ animation: slideL .3s var(--ease), halo-osc-drawer 4s ease-in-out infinite; }
 .blk-hint{margin-top:16px;margin-bottom:14px;padding:11px 13px;border-radius:12px;
   background:var(--gold-soft);border:1px solid var(--gold-line);color:var(--gold);font-size:12.5px;line-height:1.6}
 .blk-hint b{color:inherit;font-weight:600;font-size:inherit;line-height:inherit;vertical-align:baseline}
