@@ -472,7 +472,14 @@ body.theme-light .tabs-cursor{background:linear-gradient(135deg,rgba(47,107,255,
 .sfield{position:relative;display:flex;align-items:center;background:var(--input-bg);border:1px solid var(--line);
   border-radius:11px;padding:0 12px;transition:border-color .2s,box-shadow .2s;overflow:hidden}
 .sfield svg{width:16px;height:16px;color:var(--faint);flex:none}
-.sfield input{flex:1;background:transparent;border:none;outline:none;color:var(--txt);padding:10px 8px;font-size:13px}
+.sfield input{flex:1;background:transparent;border:none;border-radius:0;outline:none;color:var(--txt);padding:10px 8px;font-size:13px}
+/* ⚠️ 内层 input 必须显式清掉 focus 光晕：搜索框常被放在 .field 容器里
+   （如可搜索下拉的 .combo-search、目的地池表单的搜索），
+   此时 `.field input:focus`（特异性 0,2,1）会盖过 `.sfield input`（0,1,1），
+   给内层 input 套上 `box-shadow:0 0 0 3px rgba(76,141,255,.18)` 和 border-radius:10px，
+   与外层 `.sfield:focus-within` 的 3px 光晕叠加 → 视觉上变成「双层边框」。
+   这里用同特异性(0,2,1)且声明在后，确保内层永远无边框、无光晕。 */
+.sfield input:focus{background:transparent;border:none;border-radius:0;box-shadow:none;outline:none}
 .sfield:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(76,141,255,.16)}
 .sfield .s-clear{position:absolute;right:8px;width:18px;height:18px;border:none;border-radius:50%;background:var(--line2);
   color:var(--txt);font-size:13px;line-height:1;display:none;place-items:center}
