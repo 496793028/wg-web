@@ -1338,6 +1338,7 @@ function openExtForm(id){
 }
 
 async function saveExtConn(el){
+  const id = el.dataset.id;   // 必须在最前：下面组装 body 时就要用（此前声明在后，触发 TDZ 导致保存静默失败）
   const name = ($('#extName') || {}).value ? $('#extName').value.trim() : '';
   if (!name) return toast('请填写连接名称', 'warn');
   const field_map = {};
@@ -1360,7 +1361,6 @@ async function saveExtConn(el){
   /* 调用方式跟着连接走：新建用当前 Tab，编辑保持原值 */
   const cur = id ? (S.extConns || []).find(x => String(x.id) === String(id)) : null;
   body.mode = cur ? (cur.mode || 'pull') : extMode;
-  const id = el.dataset.id;
   try {
     if (id) await api('PUT', 'ext/connections/' + id, body);
     else {
