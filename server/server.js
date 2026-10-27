@@ -59,8 +59,11 @@ const ipOf = r => (r.headers['x-forwarded-for'] || '').split(',')[0].trim() || r
 
 /* CSRF：写请求必须带自定义头（登录与网关推送除外；客户端登录来自原生客户端，同样豁免） */
 app.use((req, res, next) => {
+  /* 豁免名单都是令牌鉴权的机器接口（非 Cookie 会话，无 CSRF 风险）：
+     ingest=网关回传，client/login=客户端登录，open=外部连接开放接口。
+     漏掉 open 会导致拉取器和外部系统全部被 400「缺少安全请求头」挡下。 */
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method) &&
-      !/^\/api\/(auth\/login|ingest|client\/login)/.test(req.path)) {
+      !/^\/api\/(auth\/login|ingest|client\/login|open\/)/.test(req.path)) {
     if (req.headers['x-requested-with'] !== 'fetch')
       return res.status(400).json({ error: '缺少安全请求头' });
   }
