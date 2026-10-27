@@ -1246,15 +1246,27 @@ async function feishuSendText(conn, openId, text){
 /* 处理单条已通过的申请 */
 async function pollOne(conn, rec, map, fieldNames){
   const f = rec.fields || {};
-  const fRid = map.request_id || '申请编号';
-  const fApplicant = map.applicant || '申请人';
-  const fNote = map.note || '用途说明';
-  const fTarget = map.packages || 'VPN目标';
+  /* 读记录用 Base 字段名；组装请求体用「线上键名」——
+     映射未配置时必须回退到平台键名，否则开放接口的 extPick 取不到值，
+     会全部栽在「缺少 request_id」上（2026-10-27 线上踩过）。 */
+  const F = {
+    rid:    map.request_id || '申请编号',
+    who:    map.applicant  || '申请人',
+    note:   map.note       || '用途说明',
+    target: map.packages   || 'VPN目标',
+  };
+  const W = {
+    rid:    map.request_id || 'request_id',
+    who:    map.applicant  || 'applicant',
+    note:   map.note       || 'note',
+    target: map.packages   || 'packages',
+  };
   /* 若另外配置了「目的地池」字段，也要一并带上；否则拉取模式永远只能授包 */
-  const fPools = map.pools && map.pools !== fTarget ? map.pools : '';
+  const fPools = map.pools && map.pools !== F.target ? map.pools : '';
+  const wPools = map.pools || 'pools';
 
-  const rid = recText(f[fRid]).trim();
-  const who = recUser(f[fApplicant]);
+  const rid = recText(f[F.rid]).trim();
+  const who = recUser(f[F.who]);
   if (!rid) return { skipped: 1 };
   if (!who.name) return { skipped: 1 };
 
@@ -1264,15 +1276,15 @@ async function pollOne(conn, rec, map, fieldNames){
   if (prev && prev.ok && prev.notified) return { skipped: 1 };
 
   const body = {};
-  body[fRid] = rid;
-  body[fApplicant] = who.name;
-  const note = recText(f[fNote]);
-  if (note) body[fNote] = note.slice(0, 128);
-  const target = recText(f[fTarget]);
-  if (target) body[fTarget] = [target];
+  body[W.rid] = rid;
+  body[W.who] = who.name;
+  const note = recText(f[F.note]);
+  if (note) body[W.note] = note.slice(0, 128);
+  const target = recText(f[F.target]);
+  if (target) body[W.target] = [target];
   if (fPools) {
     const poolVal = recText(f[fPools]);
-    if (poolVal) body[fPools] = [poolVal];
+    if (poolVal) body[wPools] = [poolVal];
   }
 
   /* 复用开放接口：鉴权、字段映射、幂等、记录都在同一处 */
@@ -1329,13 +1341,16 @@ async function pollConnection(conn, dry){
     };
   }
   let created = 0, skipped = 0, failed = 0;
+  const errs = [];
   for (const rec of approved) {
     try {
       const x = await pollOne(conn, rec, map, fieldNames);
       created += x.created || 0; skipped += x.skipped || 0; failed += x.failed || 0;
-    } catch (e) { failed++; console.error('[ext-poll]', rec.record_id, e.message); }
+      if (x.failed) errs.push(`${x.rid || rec.record_id}：${x.reason || '未知原因'}`);
+    } catch (e) { failed++; errs.push(`${rec.record_id}：${e.message}`); }
   }
-  const msg = `通过 ${approved.length} / 新开 ${created} / 跳过 ${skipped} / 失败 ${failed}`;
+  const msg = `通过 ${approved.length} / 新开 ${created} / 跳过 ${skipped} / 失败 ${failed}`
+    + (errs.length ? `；${errs.slice(0, 2).join('；')}` : '');
   await q(`UPDATE ext_connection SET last_poll_at=${D.sql.now3}, last_poll_msg=? WHERE id=?`,
     [msg, conn.id]).catch(() => {});
   return { ok: true, approved: approved.length, created, skipped, failed, message: msg };
