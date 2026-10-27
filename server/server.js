@@ -1043,8 +1043,16 @@ app.post('/api/open/vpn-provision', async (req, res) => {
   const rid       = str(extPick(body, map, 'request_id'), 128);
   const applicant = str(extPick(body, map, 'applicant'), 64);
   const note      = str(extPick(body, map, 'note'), 128) || '外部连接开通';
-  const mode      = extPick(body, map, 'mode') === 'deny' ? 'deny' : 'allow';
-  const fullProxy = extBool(extPick(body, map, 'full_proxy'));
+  let   mode      = extPick(body, map, 'mode') === 'deny' ? 'deny' : 'allow';
+  let   fullProxy = extBool(extPick(body, map, 'full_proxy'));
+  /* 权限模式（默认 / 全代理 / 黑名单）：申请单里显式填写时优先于 mode/full_proxy 两个独立键。
+     空值 / 未识别的值一律按「默认」（白名单）处理。 */
+  const permRaw = String(extPick(body, map, 'perm') || '').trim();
+  if (permRaw) {
+    if (/^黑名单$|^deny$/i.test(permRaw)) { mode = 'deny'; fullProxy = 0; }
+    else if (/^全代理$|^full/i.test(permRaw)) { mode = 'allow'; fullProxy = 1; }
+    else if (/^默认$|^default$|^allow$/i.test(permRaw)) { mode = 'allow'; fullProxy = 0; }
+  }
   const pkgRaw    = extPick(body, map, 'packages');
   const poolRaw   = extPick(body, map, 'pools');
 
@@ -1257,12 +1265,14 @@ async function pollOne(conn, rec, map, fieldNames){
     who:    map.applicant  || '申请人',
     note:   map.note       || '用途说明',
     target: map.packages   || 'VPN目标',
+    perm:   map.perm       || '权限模式',
   };
   const W = {
     rid:    map.request_id || 'request_id',
     who:    map.applicant  || 'applicant',
     note:   map.note       || 'note',
     target: map.packages   || 'packages',
+    perm:   map.perm       || 'perm',
   };
   /* 若另外配置了「目的地池」字段，也要一并带上；否则拉取模式永远只能授包 */
   const fPools = map.pools && map.pools !== F.target ? map.pools : '';
@@ -1289,6 +1299,9 @@ async function pollOne(conn, rec, map, fieldNames){
     const poolVal = recText(f[fPools]);
     if (poolVal) body[wPools] = [poolVal];
   }
+  /* 权限模式：Base 里没填就省略，开放接口按「默认」处理 */
+  const permVal = recText(f[F.perm]).trim();
+  if (permVal) body[W.perm] = permVal;
 
   /* 复用开放接口：鉴权、字段映射、幂等、记录都在同一处 */
   const r = await fetch(`http://127.0.0.1:${PORT}/api/open/vpn-provision`, {
