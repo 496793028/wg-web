@@ -121,9 +121,12 @@ const asyncHandler = fn => (req, res, next) => Promise.resolve(fn(req, res, next
  * ===================================================================== */
 /* 首次部署检测：admin 账号存在但口令未设置时，前端显示「设置初始口令」页。 */
 app.get('/api/auth/setup-status', asyncHandler(async (_req, res) => {
-  const row = await q1(`SELECT id FROM sys_account
-    WHERE login='admin' AND (pwd_hash IS NULL OR pwd_hash='')`);
-  res.json({ needSetup: !!row });
+  /* 判据是「有没有一个能登录的超级管理员」，不是某个固定登录名：
+     超管允许改登录名，按 login='admin' 判断会在改名后误判成未初始化。 */
+  const total = await q1(`SELECT COUNT(*) AS n FROM sys_account WHERE role='admin'`);
+  const withPwd = await q1(`SELECT COUNT(*) AS n FROM sys_account
+      WHERE role='admin' AND pwd_hash IS NOT NULL AND pwd_hash<>''`);
+  res.json({ needSetup: Number(total.n) > 0 && Number(withPwd.n) === 0 });
 }));
 
 app.post('/api/auth/login', asyncHandler(async (req, res) => {
@@ -1250,16 +1253,26 @@ async function initDb() {
      这样既避免"源码公开 ⇒ 后台口令公开"，也避免初始口令出现在日志/终端历史里。 */
   const PWD = process.env.ADMIN_INIT_PWD || '';
   const mk = async (login, name, role, pa, pd, pv, pu) => {
-    if (await q1(`SELECT id FROM sys_account WHERE login=?`, [login])) return;
+    if (await q1(`SELECT id FROM sys_account WHERE login=?`, [login])) return false;
     const { hash, salt } = PWD ? A.pwdHash(PWD) : { hash: '', salt: '' };
     await q(`INSERT INTO sys_account (login, name, pwd_hash, pwd_salt, role,
       perm_account, perm_dest, perm_vpn, perm_audit, must_change_pwd)
       VALUES (?,?,?,?,?,?,?,?,?,?)`, [login, name, hash, salt, role, pa, pd, pv, pu, PWD ? 0 : 1]);
+    return true;
   };
-  await mk('admin', '系统管理员', 'admin', 'rw', 'rw', 'rw', 'rw');
-  console.log(PWD
-    ? '[init] 管理员账号已就绪（口令取自 .env 的 ADMIN_INIT_PWD）'
-    : '[init] admin 口令未设置 —— 请打开平台首页完成初始口令设置（仅首次）');
+  /* ⚠️ 判断「是否已有超级管理员」必须按 **role**，不能按 login：
+     管理员允许修改登录名（如把 admin 改成 kedong），若按 login='admin' 判断，
+     改名后再执行一次 --init 就会凭空再造出第二个超管，并让前端误判为
+     「首次部署、需设置初始口令」。 */
+  if (await q1(`SELECT id FROM sys_account WHERE role='admin'`)) {
+    console.log('[init] 已存在超级管理员，跳过默认 admin 创建');
+  } else {
+    const createdAdmin = await mk('admin', '系统管理员', 'admin', 'rw', 'rw', 'rw', 'rw');
+    console.log(createdAdmin
+      ? (PWD ? '[init] 管理员账号已就绪（口令取自 .env 的 ADMIN_INIT_PWD）'
+             : '[init] admin 口令未设置 —— 请打开平台首页完成初始口令设置（仅首次）')
+      : '[init] 默认 admin 已存在，跳过');
+  }
   /* 演示账号只在 SEED_DEMO=1 时创建：默认多出 3 个账号（其中 1 个是管理员角色）
      在真实环境里是无意义的额外入口，不该随初始化产生。 */
   if (process.env.SEED_DEMO === '1') {
