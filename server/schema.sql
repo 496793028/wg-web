@@ -148,6 +148,38 @@ CREATE TABLE IF NOT EXISTS login_fail (
   KEY idx_ip (ip)
 ) ENGINE=InnoDB;
 
+-- ---------- 9. 外部连接（飞书审批等） ----------
+CREATE TABLE IF NOT EXISTS ext_connection (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(64)  NOT NULL COMMENT '连接名称，如「飞书 - VPN 申请」',
+  kind       VARCHAR(16)  NOT NULL DEFAULT 'feishu' COMMENT '类型：feishu / other',
+  enabled    TINYINT      NOT NULL DEFAULT 1 COMMENT '1启用 0停用',
+  token      VARCHAR(64)  NOT NULL COMMENT '外部系统调用凭据（X-App-Token）',
+  field_map  TEXT         NULL COMMENT 'JSON：平台字段 -> 外部请求体字段名',
+  note       VARCHAR(255) NULL,
+  created_at DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_ext_token (token)
+) ENGINE=InnoDB COMMENT='外部系统连接配置（每个连接独立字段映射）';
+
+-- ---------- 10. 外部连接开通记录 ----------
+CREATE TABLE IF NOT EXISTS ext_provision_log (
+  id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  conn_id     BIGINT UNSIGNED NOT NULL,
+  conn_name   VARCHAR(64)  NOT NULL,
+  request_id  VARCHAR(128) NOT NULL COMMENT '外部申请单号，同一连接内唯一（幂等键）',
+  applicant   VARCHAR(64)  NULL,
+  vpn_id      BIGINT UNSIGNED NULL,
+  vpn_ip      VARCHAR(45)  NULL,
+  ok          TINYINT      NOT NULL DEFAULT 0 COMMENT '1成功 0失败',
+  code        INT          NOT NULL DEFAULT 0 COMMENT '0成功；非0为业务错误码',
+  message     VARCHAR(500) NULL,
+  duration_ms INT          NOT NULL DEFAULT 0,
+  created_at  DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_ext_req (conn_id, request_id),
+  KEY idx_ext_created (created_at)
+) ENGINE=InnoDB COMMENT='外部连接开通记录（一单一行的幂等记录）';
+
 -- =============================================================
 --  生产环境加固建议
 -- =============================================================

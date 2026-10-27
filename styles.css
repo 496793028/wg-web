@@ -934,3 +934,58 @@ body.theme-light .lp-glow{border-color:rgba(47,107,255,.75);
   text-align:center;user-select:all;animation:vacPop .34s var(--ease) both}
 
 @keyframes vacPop{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}
+
+/* =====================================================================
+ *  外部连接配置（顶栏入口 / 多连接卡片 / 字段映射）
+ * ===================================================================== */
+/* 顶栏入口：替代原来的「后端已连接」状态徽标，做成可点击的胶囊 */
+.ext-pill{display:inline-flex;align-items:center;gap:7px;padding:4px 13px 4px 10px;border-radius:999px;
+  background:var(--panel2);border:1px solid var(--line2);color:var(--dim);font-size:12px;font-family:inherit;
+  cursor:pointer;transition:border-color .2s,color .2s,background .2s}
+.ext-pill svg{width:14px;height:14px;flex:none}
+.ext-pill:hover{border-color:var(--accent);color:var(--txt);background:rgba(76,141,255,.08)}
+.mtop-ext{flex:none}
+
+/* 宽弹窗：头/尾固定、只有内容区滚动，避免字段映射较长时「保存」被挤出视口 */
+.modal.ext-wide{width:760px;display:flex;flex-direction:column;overflow:hidden}
+.modal.ext-wide .modal-hd,.modal.ext-wide .modal-ft{flex:none}
+.modal.ext-wide .modal-bd{flex:1;min-height:0;overflow:auto}
+
+.ext-top{display:flex;align-items:flex-start;gap:16px;margin-bottom:14px}
+.ext-intro{flex:1;font-size:12.5px;line-height:1.7;color:var(--dim)}
+.ext-intro code{font-family:Consolas,"JetBrains Mono",monospace;font-size:11.5px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+
+.ext-grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.ext-card{cursor:default;padding:13px}
+.ext-card:hover{transform:none}
+.ext-card .ucard-top{gap:10px;margin-bottom:10px}
+.ext-card .ucard-ft{gap:10px}
+.ext-card .am-switch{padding:0;font-size:0;margin-left:auto}
+.ext-ico{width:34px;height:34px;border-radius:10px;flex:none;display:grid;place-items:center;
+  background:rgba(76,141,255,.12);color:var(--accent)}
+.ext-ico svg{width:18px;height:18px}
+
+.ext-token-row{display:flex;align-items:center;gap:6px;margin:0 0 10px;
+  background:var(--input-bg);border:1px solid var(--line);border-radius:9px;padding:6px 8px}
+.ext-token-row code{flex:1;min-width:0;font-family:Consolas,"JetBrains Mono",monospace;font-size:11px;
+  color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ext-token-row .icon-btn{width:26px;height:26px;flex:none}
+.ext-token-row .btn{flex:none}
+
+.ext-map-hd{display:flex;align-items:baseline;gap:9px;margin:18px 0 8px;font-size:13px;font-weight:500;color:var(--txt)}
+.ext-map-hd .sub{font-weight:400;font-size:11.5px;color:var(--faint)}
+.ext-map{display:flex;flex-direction:column;gap:7px}
+.ext-map-row{display:grid;grid-template-columns:190px 1fr;gap:10px;align-items:center}
+.ext-map-k{display:flex;align-items:baseline;gap:7px;font-size:12.5px;color:var(--txt)}
+.ext-map-k .sub{font-size:10.5px;color:var(--faint);font-family:Consolas,"JetBrains Mono",monospace}
+.ext-map-row input{width:100%;background:var(--input-bg);border:1px solid var(--line);color:var(--txt);
+  padding:8px 10px;border-radius:9px;font-size:12.5px;outline:none;transition:border-color .2s,box-shadow .2s}
+.ext-map-row input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(76,141,255,.16)}
+
+@media (max-width:760px){
+  .modal.ext-wide{width:100%}
+  .ext-top{flex-direction:column;gap:10px}
+  .ext-map-row{grid-template-columns:1fr;gap:4px}
+}
+

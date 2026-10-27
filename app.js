@@ -77,6 +77,7 @@ const ICON = {
   dest:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg>',
   vpn:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="12" r="4"/><path d="M12 12h9M18 12v3.5"/></svg>',
   audit:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+  link:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L11 5"/><path d="M14 11a5 5 0 0 0-7.07 0l-2.12 2.12a5 5 0 0 0 7.07 7.07L13 19"/></svg>',
   search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>',
   arrow:'<svg class="combo-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>',
@@ -104,7 +105,8 @@ const PERM_LABEL = { none:'无权限', r:'仅查看', rw:'可修改' };
 const ROLES = { admin:'超级管理员', sec:'安全审计员', op:'运维操作员', custom:'自定义' };
 
 /* ---------------- 状态 ---------------- */
-let S = { accounts:[], pools:[], packages:[], vpn:[], logs:[], audits:[], stats:{} };
+let S = { accounts:[], pools:[], packages:[], vpn:[], logs:[], audits:[], stats:{},
+  extConns:[], extProv:[] };
 let me = null, needSetup = false, appErr = '';   // needSetup：首次部署、admin 口令尚未设置
 const ui = { route:'account', sel:'account', destTab:'pool', auditTab:'access', acctTab:'platform', batch:false, picked:new Set(),
   editGrants:[], f:{ name:'', dst:'', port:'', act:'', days:'' }, q:{ vpn:'', pool:'', pkg:'', grant:'', acct:'' }, dockOpen:false };
@@ -248,7 +250,8 @@ function render(){
 }
 function refresh(){ const m=$('#mainView'); if(m){ m.innerHTML = `<div class="view">${routeView()}</div>`; bindSF();
   requestAnimationFrame(moveTabCursors);
-  if(ui.route==='audit'){ bindLogFilters(); loadLogs(); } } }
+  if(ui.route==='audit'){ bindLogFilters();
+    if(ui.auditTab==='provision') loadExtProvision(); else loadLogs(); } } }
 
 /* 品牌图标：登录页与初始化页共用，避免两处各写一份 SVG */
 const LOGO_SVG = `<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>`;
@@ -363,11 +366,13 @@ function shell(){
       <button class="mtop-avatar" data-act="avatar-toggle" type="button" title="${esc(me.name)}">
         ${av?`<img src="${esc(av)}" alt="">`:ICON.person}</button>
       <div class="mtop-title">${esc(currentPathName())}</div>
+      <button class="icon-btn mtop-ext" data-act="ext-open" type="button" title="外部连接配置">${ICON.link}</button>
       <button class="icon-btn" data-act="reload" title="刷新数据">${ICON.reload}</button>
     </div>`;
   const main = `<div class="main">
     <div class="topstrip">
-      <span class="badge ok">● 后端已连接</span>
+      <button class="ext-pill" data-act="ext-open" type="button" title="配置外部系统连接（飞书审批等）">
+        ${ICON.link}<span>外部连接配置</span></button>
       <span class="strip-path">当前：<b>${esc(currentPathName())}</b></span>
       <span class="spacer"></span>
       <button class="icon-btn" data-act="reload" title="刷新数据">${ICON.reload}</button>
@@ -1166,6 +1171,193 @@ function grantListHTML(){
       : '<div class="chk-empty">没有匹配的 IP-端口</div>'}</div></div>`;
 }
 
+/* ================= 外部连接配置 =================
+ * 一个连接 = 一个外部系统（如飞书多维表格）的接入配置：
+ *   - 独立令牌（X-App-Token），用于识别调用来源
+ *   - 独立字段映射：平台字段 -> 外部请求体里的字段名
+ * 页面入口在顶栏（桌面 topstrip / 竖屏 mtop 同一位置）。
+ */
+const EXT_MAP_ROWS = [
+  ['request_id', '申请单号', 'recXXXX（必填）'],
+  ['applicant',  '申请人姓名', '张三（必填）'],
+  ['open_id',    '飞书 open_id', 'ou_xxx'],
+  ['mode',       '模式', 'allow / deny'],
+  ['full_proxy', '全代理', '0 / 1'],
+  ['packages',   '目的地包', '[3,7] 或 包名'],
+  ['pools',      '目的地池', '[1] 或 池名'],
+  ['valid_until','有效期', '2026-12-31'],
+  ['note',       '备注', '外部连接开通'],
+];
+
+function extCardHTML(c){
+  const map = c.field_map || {};
+  const n = Object.keys(map).filter(k => map[k]).length;
+  return `<div class="ucard ext-card">
+    <div class="ucard-top">
+      <div class="ext-ico">${ICON.link}</div>
+      <div style="min-width:0">
+        <div class="ucard-name">${esc(c.name)}</div>
+        <div class="ucard-ip">${esc(c.kind === 'feishu' ? '飞书多维表格' : '其它系统')} · ${n} 项字段映射</div>
+      </div>
+      <button class="am-switch ${c.enabled ? 'on' : ''}" data-act="ext-toggle" data-id="${c.id}"
+        role="switch" aria-checked="${c.enabled ? 1 : 0}" type="button"><span class="am-knob"></span></button>
+    </div>
+    <div class="ext-token-row"><code title="${esc(c.token || '')}">${esc(c.token || '')}</code>
+      <button class="icon-btn" data-act="ext-copy" data-token="${esc(c.token || '')}"
+        title="复制令牌" type="button">${ICON.copy}</button></div>
+    <div class="ucard-ft"><span class="sub">${esc(c.note || '未填写备注')}</span>
+      <div style="display:flex;gap:8px;flex:none">
+        <button class="btn sm" data-act="ext-edit" data-id="${c.id}" type="button">编辑</button>
+        <button class="btn sm danger" data-act="ext-del" data-id="${c.id}" type="button">删除</button>
+      </div></div>
+  </div>`;
+}
+
+async function openExtConns(){
+  try { const r = await api('GET', 'ext/connections'); S.extConns = r.rows || []; }
+  catch (e) { toast(e.message, 'err'); return; }
+  const rows = S.extConns;
+  $('#layer').innerHTML = `<div class="modal-wrap" data-backdrop><div class="modal wide ext-wide">
+    <div class="modal-hd"><h3>外部连接配置</h3><button class="icon-btn" data-close>×</button></div>
+    <div class="modal-bd">
+      <div class="ext-top">
+        <div class="ext-intro">外部系统调用 <code>POST /api/open/vpn-provision</code>，用 <code>X-App-Token</code> 识别连接。
+          每个连接有独立的令牌与字段映射；审批通过后由外部系统触发开通。</div>
+        <button class="btn primary sm" data-act="ext-new" type="button">+ 新增连接</button>
+      </div>
+      <div class="card-grid ext-grid">${
+        rows.length ? rows.map(extCardHTML).join('')
+                    : '<div class="empty"><p>还没有外部连接，先新增一个</p></div>'}</div>
+    </div>
+    <div class="modal-ft"><button class="btn" data-close type="button">关闭</button></div>
+  </div></div>`;
+  snapLayer();
+}
+
+function extFormHTML(c){
+  const map = c ? (c.field_map || {}) : {};
+  return `<div class="field"><label>连接名称</label>
+      <input id="extName" value="${esc(c ? c.name : '')}" maxlength="64"
+        placeholder="如：飞书 - VPN 申请"></div>
+    <div class="grid2">
+      <div class="field"><label>类型</label>
+        <select id="extKind">
+          <option value="feishu" ${!c || c.kind === 'feishu' ? 'selected' : ''}>飞书多维表格</option>
+          <option value="other" ${c && c.kind === 'other' ? 'selected' : ''}>其它系统</option>
+        </select></div>
+      <div class="field"><label>状态</label>
+        <select id="extEnabled">
+          <option value="1" ${!c || c.enabled ? 'selected' : ''}>启用</option>
+          <option value="0" ${c && !c.enabled ? 'selected' : ''}>停用</option>
+        </select></div>
+    </div>
+    <div class="field"><label>备注</label>
+      <input id="extNote" value="${esc(c ? (c.note || '') : '')}" maxlength="255" placeholder="可选"></div>
+    ${c ? `<div class="field"><label>调用令牌（X-App-Token）</label>
+      <div class="ext-token-row"><code id="extToken">${esc(c.token || '')}</code>
+        <button class="btn sm" data-act="ext-copy" data-token="${esc(c.token || '')}" type="button">复制</button>
+        <button class="btn sm" data-act="ext-token-reset" data-id="${c.id}" type="button">重置</button></div>
+      <div class="hint">重置后旧令牌立即失效，需要同步更新外部系统里的请求头。</div></div>`
+      : `<div class="hint" style="margin:-4px 0 14px">保存后自动生成调用令牌。</div>`}
+    <div class="ext-map-hd">字段映射
+      <span class="sub">右侧填外部请求体里的字段名；留空则用左侧的平台键名</span></div>
+    <div class="ext-map">
+      ${EXT_MAP_ROWS.map(([k, label, ph]) => `<div class="ext-map-row">
+        <div class="ext-map-k">${label}<span class="sub mono">${k}</span></div>
+        <input data-map="${k}" value="${esc(map[k] || '')}" placeholder="${esc(ph)}">
+      </div>`).join('')}
+    </div>`;
+}
+
+function openExtForm(id){
+  const c = id ? (S.extConns || []).find(x => String(x.id) === String(id)) : null;
+  $('#layer').innerHTML = `<div class="modal-wrap" data-backdrop><div class="modal wide ext-wide">
+    <div class="modal-hd"><h3>${c ? '编辑外部连接' : '新增外部连接'}</h3>
+      <button class="icon-btn" data-close>×</button></div>
+    <div class="modal-bd">${extFormHTML(c)}</div>
+    <div class="modal-ft">
+      <button class="btn" data-act="ext-back" type="button">返回列表</button>
+      <button class="btn primary" data-act="ext-save" data-id="${c ? c.id : ''}" type="button">保存</button>
+    </div>
+  </div></div>`;
+  snapLayer();
+}
+
+async function saveExtConn(el){
+  const name = ($('#extName') || {}).value ? $('#extName').value.trim() : '';
+  if (!name) return toast('请填写连接名称', 'warn');
+  const field_map = {};
+  ($$('#layer [data-map]') || []).forEach(i => { const v = i.value.trim(); if (v) field_map[i.dataset.map] = v; });
+  const body = {
+    name,
+    kind: ($('#extKind') || {}).value || 'feishu',
+    enabled: ($('#extEnabled') || {}).value === '1',
+    note: ($('#extNote') || {}).value || '',
+    field_map,
+  };
+  const id = el.dataset.id;
+  try {
+    if (id) await api('PUT', 'ext/connections/' + id, body);
+    else {
+      const r = await api('POST', 'ext/connections', body);
+      toast('已创建，令牌：' + r.token);
+    }
+    toast('已保存');
+    await openExtConns();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+/* ---------------- 外部连接开通记录 ---------------- */
+function extProvHTML(){
+  const rows = S.extProv || [];
+  if (!rows.length) return '<div class="empty"><p>暂无开通记录</p></div>';
+  if (isMobile()) {
+    return `<div class="card-grid">${rows.map(r => `<div class="ucard">
+      <div class="ucard-top"><div style="min-width:0">
+        <div class="ucard-name">${esc(r.applicant || '—')}</div>
+        <div class="ucard-ip">${esc(fmt(r.created_at))}</div></div>
+        <span class="badge ${r.ok ? 'ok' : 'danger'}" style="margin-left:auto;flex:none">${r.ok ? '成功' : '失败'}</span></div>
+      <div class="ucard-ft"><span>${esc(r.conn_name || '—')}</span>
+        <span class="sub mono">${esc(r.vpn_ip || r.request_id || '')}</span></div>
+      ${r.ok ? '' : `<div class="sub" style="margin-top:8px;color:var(--danger)">${esc(r.message || '')}</div>`}
+    </div>`).join('')}</div>`;
+  }
+  const tr = rows.map(r => `<tr>
+    <td class="audit-line">${esc(fmt(r.created_at))}</td>
+    <td>${esc(r.conn_name || '—')}</td>
+    <td>${esc(r.applicant || '—')}</td>
+    <td class="sub mono">${esc(r.request_id || '—')}</td>
+    <td class="mono">${esc(r.vpn_ip || '—')}</td>
+    <td><span class="badge ${r.ok ? 'ok' : 'danger'}">${r.ok ? '成功' : '失败'}</span></td>
+    <td class="sub">${r.ok ? `${r.duration_ms || 0} ms` : esc(r.message || '')}</td>
+  </tr>`).join('');
+  return `<div class="tbl-wrap"><table><thead><tr>
+      <th>时间</th><th>连接</th><th>申请人</th><th>申请单号</th><th>VPN IP</th><th>结果</th><th>说明</th>
+    </tr></thead><tbody>${tr}</tbody></table></div>`;
+}
+
+function viewExtProvision(){
+  return `<div class="page-hd"><div><div class="page-title">访问追踪</div>
+      <div class="page-desc">外部系统（飞书审批等）自动开通 VPN 的执行结果；失败原因可用于排查字段映射与权限包</div></div>
+      <div class="hd-actions"><button class="btn" data-act="ext-prov-reload">刷新</button></div></div>
+    ${auditTabsHTML()}
+    <div class="tab-pane" id="extProvBox">${extProvHTML()}</div>`;
+}
+
+async function loadExtProvision(){
+  try { const r = await api('GET', 'ext/provisions'); S.extProv = r.rows || []; }
+  catch (e) { toast(e.message, 'err'); }
+  const b = $('#extProvBox'); if (b) b.innerHTML = extProvHTML();
+}
+
+function auditTabsHTML(){
+  return `<div class="tabs"><div class="tabs-cursor"></div>
+    <div class="tab ${ui.auditTab === 'access' ? 'on' : ''}" data-act="atab" data-v="access">用户访问记录</div>
+    <div class="tab ${ui.auditTab === 'audit' ? 'on' : ''}" data-act="atab" data-v="audit">管理员操作审计</div>
+    <div class="tab ${ui.auditTab === 'provision' ? 'on' : ''}" data-act="atab" data-v="provision">外部连接开通记录</div>
+  </div>`;
+}
+
 /* ================= 访问追踪 ================= */
 async function loadLogs(){
   try{
@@ -1201,6 +1393,7 @@ function auditCards(){
   </div>`).join('') : '<div class="empty"><p>暂无审计记录</p></div>';
 }
 function viewAudit(){
+  if(ui.auditTab==='provision') return viewExtProvision();
   if(ui.auditTab==='audit'){
     const rows = S.audits.map(a=>`<tr><td class="audit-line">${fmt(a.ts)}</td><td>${esc(a.actor)}</td>
       <td><span class="badge acc">${esc(a.action)}</span></td><td>${esc(a.target)}</td>
@@ -1209,15 +1402,13 @@ function viewAudit(){
       <tbody>${rows || '<tr><td colspan="5"><div class="empty"><p>暂无审计记录</p></div></td></tr>'}</tbody></table></div>`;
     return `<div class="page-hd"><div><div class="page-title">访问追踪</div>
       <div class="page-desc">管理员在本平台的操作留痕，满足安全审计的可追溯要求</div></div></div>
-      <div class="tabs"><div class="tabs-cursor"></div><div class="tab" data-act="atab" data-v="access">用户访问记录</div>
-        <div class="tab on" data-act="atab" data-v="audit">管理员操作审计</div></div>
+      ${auditTabsHTML()}
       <div class="tab-pane">${isMobile() ? `<div class="card-grid">${auditCards()}</div>` : table}</div>`;
   }
   return `<div class="page-hd"><div><div class="page-title">访问追踪</div>
       <div class="page-desc">每一条新建连接：谁、在什么时候、访问了哪个 IP 的哪个端口、是否被放行</div></div>
     <div class="hd-actions"><button class="btn" data-act="csv">导出 CSV</button></div></div>
-    <div class="tabs"><div class="tabs-cursor"></div><div class="tab on" data-act="atab" data-v="access">用户访问记录</div>
-      <div class="tab" data-act="atab" data-v="audit">管理员操作审计</div></div>
+    ${auditTabsHTML()}
     <div class="tab-pane">
     <div class="stats" id="statBox">${statHTML()}</div>
     <div class="filters">
@@ -1659,7 +1850,32 @@ const ACT = {
   'dtab': el=>{ rememberTabCursor(); ui.destTab=el.dataset.v; saveUi(); refresh(); },
   'atab': el=>{ rememberTabCursor(); ui.auditTab=el.dataset.v; saveUi(); refresh();
     if(ui.auditTab==='access'){ bindLogFilters(); loadLogs(); }
+    else if(ui.auditTab==='provision') loadExtProvision();
     else loadAudits().then(()=>refresh()); },
+  /* ---- 外部连接配置 ---- */
+  'ext-open': ()=>openExtConns(),
+  'ext-new': ()=>openExtForm(null),
+  'ext-edit': el=>openExtForm(el.dataset.id),
+  'ext-back': ()=>openExtConns(),
+  'ext-save': el=>saveExtConn(el),
+  'ext-copy': el=>copyOrWarn(el.dataset.token || '', '令牌已复制'),
+  'ext-del': el=>{
+    const c = (S.extConns || []).find(x => String(x.id) === String(el.dataset.id));
+    confirmBox('删除外部连接',
+      `确定删除「${esc(c ? c.name : '')}」吗？<br><br>删除后该令牌立即失效；已开通的 VPN 账号不受影响。`,
+      async () => { await api('DELETE', 'ext/connections/' + el.dataset.id); toast('已删除'); await openExtConns(); });
+  },
+  'ext-toggle': el=>{
+    const c = (S.extConns || []).find(x => String(x.id) === String(el.dataset.id)); if(!c) return;
+    api('PUT', 'ext/connections/' + c.id, { enabled: !c.enabled })
+      .then(() => openExtConns()).catch(e => toast(e.message, 'err'));
+  },
+  'ext-token-reset': el=>{
+    confirmBox('重置令牌', '重置后旧令牌立即失效，需要同步更新外部系统。确定继续？',
+      async () => { const r = await api('POST', 'ext/connections/' + el.dataset.id + '/token');
+        toast('新令牌：' + r.token); await openExtConns(); });
+  },
+  'ext-prov-reload': ()=>loadExtProvision(),
   'fclear': ()=>{ ui.f={name:'',dst:'',port:'',act:'',days:''}; refresh(); loadLogs(); },
   'csv': ()=>{
     const csv = ['时间,姓名,来源IP,目标IP,端口,协议,结果'].concat(S.logs.map(l=>

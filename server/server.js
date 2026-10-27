@@ -903,6 +903,215 @@ app.put('/api/vpn/:id/grants', attach, need('vpn', 'rw'), async (req, res) => {
 });
 
 /* =====================================================================
+ *  外部连接（飞书审批等）
+ *    - 管理端可维护多个连接，每个连接有独立令牌与独立字段映射
+ *    - 外部系统用 X-App-Token 调 /api/open/vpn-provision
+ *    - 同一连接内 request_id 唯一：重复调用返回首次结果，不会重复建号
+ * ===================================================================== */
+function extMapOf(conn){
+  try { const m = JSON.parse((conn && conn.field_map) || '{}'); return (m && typeof m === 'object') ? m : {}; }
+  catch { return {}; }
+}
+/* 字段映射：平台字段 -> 外部请求体里的字段名；未配置时回落到平台默认键名 */
+function extPick(body, map, key){
+  const ext = map[key];
+  if (ext && body && Object.prototype.hasOwnProperty.call(body, ext)) return body[ext];
+  return body ? body[key] : undefined;
+}
+const extNewToken = () => 'ext_' + crypto.randomBytes(20).toString('hex');
+const extBool = v => (v === true || v === 1 || v === '1' || v === 'true' || v === '是' || v === 'on') ? 1 : 0;
+/* 外部调用没有登录会话，审计里用连接名作为 actor（临时覆盖，避免污染请求对象） */
+async function extAudit(req, conn, act, target){
+  const u = req.user; req.user = { name: '外部·' + conn.name };
+  try { await audit(req, act, target); } finally { req.user = u; }
+}
+
+app.get('/api/ext/connections', attach, need('vpn', 'rw'), async (_req, res) => {
+  const rows = await q(`SELECT id,name,kind,enabled,token,field_map,note,created_at,updated_at
+                          FROM ext_connection ORDER BY id DESC`);
+  res.json({ rows: rows.map(r => ({ ...r, field_map: extMapOf(r) })) });
+});
+
+app.post('/api/ext/connections', attach, need('vpn', 'rw'), async (req, res) => {
+  const name = str(req.body.name, 64);
+  if (!name) return bad(res, '连接名称必填');
+  const kind = str(req.body.kind, 16) || 'feishu';
+  const fm = JSON.stringify(req.body.field_map && typeof req.body.field_map === 'object' ? req.body.field_map : {});
+  const token = extNewToken();
+  const r = await D.run(`INSERT INTO ext_connection (name,kind,enabled,token,field_map,note)
+                          VALUES (?,?,?,?,?,?)`,
+    [name, kind, req.body.enabled === false ? 0 : 1, token, fm, str(req.body.note, 255) || null]);
+  await audit(req, '新增外部连接', name);
+  res.json({ ok: true, id: r.id, token });
+});
+
+app.put('/api/ext/connections/:id', attach, need('vpn', 'rw'), async (req, res) => {
+  const id = Number(req.params.id);
+  const t = await q1(`SELECT * FROM ext_connection WHERE id=?`, [id]);
+  if (!t) return res.status(404).json({ error: '连接不存在' });
+  const name = str(req.body.name, 64) || t.name;
+  const kind = str(req.body.kind, 16) || t.kind;
+  const enabled = req.body.enabled === undefined ? t.enabled : (req.body.enabled ? 1 : 0);
+  const fm = req.body.field_map === undefined ? t.field_map
+    : JSON.stringify(req.body.field_map && typeof req.body.field_map === 'object' ? req.body.field_map : {});
+  const note = req.body.note === undefined ? t.note : (str(req.body.note, 255) || null);
+  await q(`UPDATE ext_connection SET name=?,kind=?,enabled=?,field_map=?,note=?,
+             updated_at=${D.sql.now3} WHERE id=?`, [name, kind, enabled, fm, note, id]);
+  await audit(req, '修改外部连接', name);
+  res.json({ ok: true, token: t.token });
+});
+
+app.delete('/api/ext/connections/:id', attach, need('vpn', 'rw'), async (req, res) => {
+  const id = Number(req.params.id);
+  const t = await q1(`SELECT name FROM ext_connection WHERE id=?`, [id]);
+  if (!t) return res.status(404).json({ error: '连接不存在' });
+  await q(`DELETE FROM ext_connection WHERE id=?`, [id]);
+  await audit(req, '删除外部连接', t.name);
+  res.json({ ok: true });
+});
+
+app.post('/api/ext/connections/:id/token', attach, need('vpn', 'rw'), async (req, res) => {
+  const id = Number(req.params.id);
+  const t = await q1(`SELECT name FROM ext_connection WHERE id=?`, [id]);
+  if (!t) return res.status(404).json({ error: '连接不存在' });
+  const token = extNewToken();
+  await q(`UPDATE ext_connection SET token=?, updated_at=${D.sql.now3} WHERE id=?`, [token, id]);
+  await audit(req, '重置外部连接令牌', t.name);
+  res.json({ ok: true, token });
+});
+
+app.get('/api/ext/provisions', attach, need('audit', 'r'), async (req, res) => {
+  const n = Number(req.query.limit);
+  const lim = Number.isFinite(n) ? Math.max(1, Math.min(n, 500)) : 200;
+  const rows = await q(`SELECT * FROM ext_provision_log ORDER BY id DESC LIMIT ${lim}`);
+  res.json({ rows });
+});
+
+/* 开放接口：外部系统（飞书多维表格自动化）调用。
+   业务错误一律返回 HTTP 200 + code≠0 —— 飞书的 HTTP 节点只解析 2xx，
+   否则拿不到响应体、也就无法分支处理。 */
+app.post('/api/open/vpn-provision', async (req, res) => {
+  const t0 = Date.now();
+  const token = String(req.headers['x-app-token'] || '').trim();
+  const conn = token ? await q1(`SELECT * FROM ext_connection WHERE token=? AND enabled=1`, [token]) : null;
+  const blank = { ok: false, code: 401, message: 'invalid token', vpn_id: null, username: '', vpn_ip: '', password: '' };
+  if (!conn) return res.status(401).json(blank);
+
+  const body = (req.body && typeof req.body === 'object') ? req.body : {};
+  const map = extMapOf(conn);
+  const rid       = str(extPick(body, map, 'request_id'), 128);
+  const applicant = str(extPick(body, map, 'applicant'), 64);
+  const note      = str(extPick(body, map, 'note'), 128) || '外部连接开通';
+  const mode      = extPick(body, map, 'mode') === 'deny' ? 'deny' : 'allow';
+  const fullProxy = extBool(extPick(body, map, 'full_proxy'));
+  const pkgRaw    = extPick(body, map, 'packages');
+  const poolRaw   = extPick(body, map, 'pools');
+
+  const out = (code, message, extra) => res.json(Object.assign({
+    ok: code === 0, code, message, vpn_id: null, username: '', vpn_ip: '', password: ''
+  }, extra || {}));
+
+  /* 业务校验失败也要落一条记录：否则「姓名已存在」这类失败在开通记录里看不到，
+     管理员无从排查（同一 request_id 后续重试会把这行更新为成功）。 */
+  const logFail = async (code, message) => {
+    try {
+      const dur = Date.now() - t0;
+      if (prev) {
+        await q(`UPDATE ext_provision_log SET ok=0,code=?,message=?,duration_ms=? WHERE id=?`,
+          [code, message, dur, prev.id]);
+      } else if (rid) {
+        await q(`${D.insertIgnore} INTO ext_provision_log
+            (conn_id,conn_name,request_id,applicant,ok,code,message,duration_ms)
+            VALUES (?,?,?,?,0,?,?,?)`, [conn.id, conn.name, rid, applicant || null, code, message, dur]);
+      }
+    } catch { /* 记录失败不影响响应 */ }
+  };
+
+  if (!rid)       return out(1001, '缺少 request_id（申请单号）');
+  if (!applicant) { await logFail(1002, '缺少申请人姓名 applicant'); return out(1002, '缺少申请人姓名 applicant'); }
+
+  /* 幂等：同一连接 + 同一申请单号只开一次；重放时从库里解密原口令返回，
+     因此不需要在任何日志表里存明文。 */
+  const prev = await q1(`SELECT * FROM ext_provision_log WHERE conn_id=? AND request_id=?`, [conn.id, rid]);
+  if (prev && prev.ok && prev.vpn_id) {
+    const v = await q1(`SELECT name, vpn_ip, pwd_enc FROM vpn_account WHERE id=?`, [prev.vpn_id]);
+    if (v) {
+      await extAudit(req, conn, '外部连接重复开通（幂等返回）', `${applicant} → ${v.vpn_ip}`);
+      return out(0, '已开通（幂等返回）', {
+        vpn_id: prev.vpn_id, username: v.name, vpn_ip: v.vpn_ip,
+        password: vpnPwdOf(v.pwd_enc) || '', replayed: true, duration_ms: Date.now() - t0
+      });
+    }
+  }
+
+  try {
+    if (await q1(`SELECT id FROM vpn_account WHERE name=?`, [applicant])) {
+      const msg = `姓名「${applicant}」已存在，未重复创建`;
+      await logFail(1003, msg);
+      return out(1003, msg);
+    }
+
+    /* 自动分配下一个 10.100.0.x（与手工新增保持同一规则） */
+    const used = (await q(`SELECT vpn_ip FROM vpn_account`)).map(r => Number(String(r.vpn_ip).split('.')[3]) || 0);
+    const ip = '10.100.0.' + ((used.length ? Math.max(...used) : 10) + 1);
+
+    const { priv, pub } = wgKeygen();
+    const pwd = randVpnPwd();
+    const ins = await D.run(`INSERT INTO vpn_account
+        (name, vpn_ip, note, pubkey, privkey, mode, full_proxy, login_enabled, pwd_enc)
+        VALUES (?,?,?,?,?,?,?,1,?)`,
+      [applicant, ip, note, pub, encKey(priv), mode, fullProxy, encKey(pwd)]);
+
+    /* 权限：支持 ID 数组、名称数组，或逗号分隔字符串 */
+    const resolve = async (rawList, kind) => {
+      const ids = [];
+      const arr = Array.isArray(rawList) ? rawList : (rawList ? String(rawList).split(',') : []);
+      const table = kind === 'pool' ? 'dest_pool' : 'dest_package';
+      for (const x of arr) {
+        const s = String(x == null ? '' : x).trim();
+        if (!s) continue;
+        const row = /^\d+$/.test(s)
+          ? await q1(`SELECT id FROM ${table} WHERE id=?`, [Number(s)])
+          : await q1(`SELECT id FROM ${table} WHERE name=?`, [s.slice(0, 64)]);
+        if (row && !ids.includes(row.id)) ids.push(row.id);
+      }
+      return ids;
+    };
+    const pkgIds  = await resolve(pkgRaw, 'pkg');
+    const poolIds = await resolve(poolRaw, 'pool');
+    for (const pid of pkgIds)
+      await q(`${D.insertIgnore} INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [ins.id, 'pkg', pid]);
+    for (const pid of poolIds)
+      await q(`${D.insertIgnore} INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [ins.id, 'pool', pid]);
+
+    const dur = Date.now() - t0;
+    await extAudit(req, conn, '外部连接开通 VPN 账号',
+      `${applicant} ${ip}（${mode}${fullProxy ? ',全代理' : ''}，包 ${pkgIds.length} / 池 ${poolIds.length}）`);
+
+    if (prev) {
+      await q(`UPDATE ext_provision_log SET conn_name=?,applicant=?,vpn_id=?,vpn_ip=?,
+                 ok=1,code=0,message=?,duration_ms=? WHERE id=?`,
+        [conn.name, applicant, ins.id, ip, '', dur, prev.id]);
+    } else {
+      await q(`${D.insertIgnore} INTO ext_provision_log
+          (conn_id,conn_name,request_id,applicant,vpn_id,vpn_ip,ok,code,message,duration_ms)
+          VALUES (?,?,?,?,?,?,1,0,?,?)`,
+        [conn.id, conn.name, rid, applicant, ins.id, ip, '', dur]);
+    }
+    syncPeers(req).catch(() => {});
+    return out(0, '开通成功', {
+      vpn_id: ins.id, username: applicant, vpn_ip: ip, password: pwd,
+      replayed: false, duration_ms: dur
+    });
+  } catch (e) {
+    const msg = String((e && e.message) || '').slice(0, 500);
+    await logFail(1009, msg);
+    console.error('[ext-provision]', msg);
+    return out(1009, '开通失败：' + (msg || '内部错误'));
+  }
+});
+
+/* =====================================================================
  *  访问日志 / 审计 / 统计
  * ===================================================================== */
 app.get('/api/logs', attach, need('audit', 'r'), async (req, res) => {

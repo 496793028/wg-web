@@ -158,6 +158,38 @@ CREATE TABLE IF NOT EXISTS login_fail (
 CREATE INDEX IF NOT EXISTS idx_lf_ts ON login_fail(ts);
 CREATE INDEX IF NOT EXISTS idx_lf_ip ON login_fail(ip);
 
+-- ---------- 9. 外部连接（飞书审批等） ----------
+CREATE TABLE IF NOT EXISTS ext_connection (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT    NOT NULL,
+  kind       TEXT    NOT NULL DEFAULT 'feishu',
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  token      TEXT    NOT NULL,
+  field_map  TEXT    NULL,
+  note       TEXT    NULL,
+  created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now','localtime')),
+  updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now','localtime'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_ext_token ON ext_connection(token);
+
+-- ---------- 10. 外部连接开通记录 ----------
+CREATE TABLE IF NOT EXISTS ext_provision_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  conn_id     INTEGER NOT NULL,
+  conn_name   TEXT    NOT NULL,
+  request_id  TEXT    NOT NULL,
+  applicant   TEXT    NULL,
+  vpn_id      INTEGER NULL,
+  vpn_ip      TEXT    NULL,
+  ok          INTEGER NOT NULL DEFAULT 0,
+  code        INTEGER NOT NULL DEFAULT 0,
+  message     TEXT    NULL,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now','localtime'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_ext_req ON ext_provision_log(conn_id, request_id);
+CREATE INDEX IF NOT EXISTS idx_ext_created ON ext_provision_log(created_at);
+
 -- =============================================================
 --  运维建议
 --   1) 定期备份：直接复制 .sqlite 文件（WAL 模式下用 `sqlite3 db ".backup out"` 更稳）
