@@ -1253,6 +1253,34 @@ function extFormHTML(c){
     </div>
     <div class="field"><label>备注</label>
       <input id="extNote" value="${esc(c ? (c.note || '') : '')}" maxlength="255" placeholder="可选"></div>
+    <div class="ext-sec-hd">飞书读取配置
+      <span class="sub">平台主动拉取「已通过」的申请，无需公网入口</span></div>
+    <div class="grid2">
+      <div class="field"><label>App ID</label>
+        <input id="extAppId" value="${esc(c ? (c.app_id || '') : '')}" placeholder="cli_xxxxxxxx"></div>
+      <div class="field"><label>App Secret</label>
+        <input id="extSecret" type="password" autocomplete="new-password"
+          placeholder="${c && c.has_secret ? '已配置，留空则不修改' : '填写 App Secret'}"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Base Token</label>
+        <input id="extBaseToken" value="${esc(c ? (c.base_token || '') : '')}" placeholder="多维表格 URL 里 /base/ 后面那段"></div>
+      <div class="field"><label>Table ID</label>
+        <input id="extTableId" value="${esc(c ? (c.table_id || '') : '')}" placeholder="tblxxxxxxxx"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>主动拉取</label>
+        <select id="extPoll">
+          <option value="1" ${c && c.poll_enabled ? 'selected' : ''}>启用</option>
+          <option value="0" ${!c || !c.poll_enabled ? 'selected' : ''}>停用</option>
+        </select></div>
+      <div class="field"><label>间隔（秒）</label>
+        <input id="extPollInterval" type="number" min="10" value="${c ? (c.poll_interval || 60) : 60}"></div>
+    </div>
+    ${c ? `<div class="ext-test-row">
+      <button class="btn sm" data-act="ext-test" data-id="${c.id}" type="button">测试连接</button>
+      <button class="btn sm" data-act="ext-poll-dry" data-id="${c.id}" type="button">试运行（不建号）</button>
+      <span class="sub" id="extTestMsg">${esc(c.last_poll_msg || '')}</span></div>` : ''}
     ${c ? `<div class="field"><label>调用令牌（X-App-Token）</label>
       <div class="ext-token-row"><code id="extToken">${esc(c.token || '')}</code>
         <button class="btn sm" data-act="ext-copy" data-token="${esc(c.token || '')}" type="button">复制</button>
@@ -1288,13 +1316,21 @@ async function saveExtConn(el){
   if (!name) return toast('请填写连接名称', 'warn');
   const field_map = {};
   ($$('#layer [data-map]') || []).forEach(i => { const v = i.value.trim(); if (v) field_map[i.dataset.map] = v; });
+  const val = id => { const el = $('#' + id); return el ? el.value : ''; };
   const body = {
     name,
     kind: ($('#extKind') || {}).value || 'feishu',
     enabled: ($('#extEnabled') || {}).value === '1',
     note: ($('#extNote') || {}).value || '',
     field_map,
+    app_id: val('extAppId').trim(),
+    base_token: val('extBaseToken').trim(),
+    table_id: val('extTableId').trim(),
+    poll_enabled: val('extPoll') === '1',
+    poll_interval: Number(val('extPollInterval')) || 60,
   };
+  const sec = val('extSecret').trim();
+  if (sec) body.app_secret = sec;
   const id = el.dataset.id;
   try {
     if (id) await api('PUT', 'ext/connections/' + id, body);
@@ -1876,6 +1912,23 @@ const ACT = {
         toast('新令牌：' + r.token); await openExtConns(); });
   },
   'ext-prov-reload': ()=>loadExtProvision(),
+  'ext-test': async el=>{
+    const box = $('#extTestMsg'); if(box) box.textContent = '测试中…';
+    try {
+      const r = await api('POST', 'ext/connections/' + el.dataset.id + '/test');
+      if(box) box.textContent = r.message || '连接正常';
+      toast(r.message || '连接正常');
+    } catch (e) { if(box) box.textContent = e.message; toast(e.message, 'err'); }
+  },
+  'ext-poll-dry': async el=>{
+    const box = $('#extTestMsg'); if(box) box.textContent = '读取中…';
+    try {
+      const r = await api('POST', 'ext/connections/' + el.dataset.id + '/poll?dry=1');
+      const msg = `共 ${r.total} 条记录，其中「已通过」${r.approved} 条`;
+      if(box) box.textContent = msg;
+      toast(msg);
+    } catch (e) { if(box) box.textContent = e.message; toast(e.message, 'err'); }
+  },
   'fclear': ()=>{ ui.f={name:'',dst:'',port:'',act:'',days:''}; refresh(); loadLogs(); },
   'csv': ()=>{
     const csv = ['时间,姓名,来源IP,目标IP,端口,协议,结果'].concat(S.logs.map(l=>

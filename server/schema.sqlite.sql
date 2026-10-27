@@ -167,6 +167,14 @@ CREATE TABLE IF NOT EXISTS ext_connection (
   token      TEXT    NOT NULL,
   field_map  TEXT    NULL,
   note       TEXT    NULL,
+  base_token TEXT    NULL,
+  table_id   TEXT    NULL,
+  app_id     TEXT    NULL,
+  app_secret_enc TEXT NULL,
+  poll_enabled INTEGER NOT NULL DEFAULT 0,
+  poll_interval INTEGER NOT NULL DEFAULT 60,
+  last_poll_at TEXT   NULL,
+  last_poll_msg TEXT  NULL,
   created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now','localtime')),
   updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now','localtime'))
 );
@@ -185,6 +193,7 @@ CREATE TABLE IF NOT EXISTS ext_provision_log (
   code        INTEGER NOT NULL DEFAULT 0,
   message     TEXT    NULL,
   duration_ms INTEGER NOT NULL DEFAULT 0,
+  notified    INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now','localtime'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uk_ext_req ON ext_provision_log(conn_id, request_id);

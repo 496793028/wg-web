@@ -973,8 +973,7 @@ body.theme-light .lp-glow{border-color:rgba(47,107,255,.75);
 .ext-token-row .icon-btn{width:26px;height:26px;flex:none}
 .ext-token-row .btn{flex:none}
 
-.ext-map-hd{display:flex;align-items:baseline;gap:9px;margin:18px 0 8px;font-size:13px;font-weight:500;color:var(--txt)}
-.ext-map-hd .sub{font-weight:400;font-size:11.5px;color:var(--faint)}
+.ext-map-hd{display:flex;align-items:baseline;gap:9px;margin:18px 0 8px;font-size:13px;font-weight:500;color:var(--txt)}.ext-map-hd .sub{font-weight:400;font-size:11.5px;color:var(--faint)}
 .ext-map{display:flex;flex-direction:column;gap:7px}
 .ext-map-row{display:grid;grid-template-columns:190px 1fr;gap:10px;align-items:center}
 .ext-map-k{display:flex;align-items:baseline;gap:7px;font-size:12.5px;color:var(--txt)}
@@ -982,6 +981,13 @@ body.theme-light .lp-glow{border-color:rgba(47,107,255,.75);
 .ext-map-row input{width:100%;background:var(--input-bg);border:1px solid var(--line);color:var(--txt);
   padding:8px 10px;border-radius:9px;font-size:12.5px;outline:none;transition:border-color .2s,box-shadow .2s}
 .ext-map-row input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(76,141,255,.16)}
+
+/* 分段标题：把「连接基本信息 / 飞书读取配置 / 字段映射」分开 */
+.ext-sec-hd{display:flex;align-items:baseline;gap:9px;margin:16px 0 10px;padding-top:14px;
+  border-top:1px solid var(--line);font-size:13px;font-weight:500;color:var(--txt)}
+.ext-sec-hd .sub{font-weight:400;font-size:11.5px;color:var(--faint)}
+.ext-test-row{display:flex;align-items:center;gap:9px;margin:-2px 0 14px;flex-wrap:wrap}
+.ext-test-row .sub{color:var(--faint);font-size:11.5px;line-height:1.5}
 
 @media (max-width:760px){
   .modal.ext-wide{width:100%}

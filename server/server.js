@@ -930,9 +930,12 @@ async function extAudit(req, conn, act, target){
 }
 
 app.get('/api/ext/connections', attach, need('vpn', 'rw'), async (_req, res) => {
-  const rows = await q(`SELECT id,name,kind,enabled,token,field_map,note,created_at,updated_at
-                          FROM ext_connection ORDER BY id DESC`);
-  res.json({ rows: rows.map(r => ({ ...r, field_map: extMapOf(r) })) });
+  const rows = await q(`SELECT id,name,kind,enabled,token,field_map,note,
+      base_token,table_id,app_id,
+      (app_secret_enc IS NOT NULL AND app_secret_enc<>'') AS has_secret,
+      poll_enabled,poll_interval,last_poll_at,last_poll_msg,created_at,updated_at
+    FROM ext_connection ORDER BY id DESC`);
+  res.json({ rows: rows.map(r => ({ ...r, has_secret: !!r.has_secret, field_map: extMapOf(r) })) });
 });
 
 app.post('/api/ext/connections', attach, need('vpn', 'rw'), async (req, res) => {
@@ -941,9 +944,15 @@ app.post('/api/ext/connections', attach, need('vpn', 'rw'), async (req, res) => 
   const kind = str(req.body.kind, 16) || 'feishu';
   const fm = JSON.stringify(req.body.field_map && typeof req.body.field_map === 'object' ? req.body.field_map : {});
   const token = extNewToken();
-  const r = await D.run(`INSERT INTO ext_connection (name,kind,enabled,token,field_map,note)
-                          VALUES (?,?,?,?,?,?)`,
-    [name, kind, req.body.enabled === false ? 0 : 1, token, fm, str(req.body.note, 255) || null]);
+  const secret = typeof req.body.app_secret === 'string' ? req.body.app_secret.trim() : '';
+  const r = await D.run(`INSERT INTO ext_connection
+      (name,kind,enabled,token,field_map,note,base_token,table_id,app_id,app_secret_enc,poll_enabled,poll_interval)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [name, kind, req.body.enabled === false ? 0 : 1, token, fm, str(req.body.note, 255) || null,
+     str(req.body.base_token, 64) || null, str(req.body.table_id, 64) || null, str(req.body.app_id, 64) || null,
+     secret ? encKey(secret) : null,
+     req.body.poll_enabled ? 1 : 0,
+     Number(req.body.poll_interval) > 0 ? Math.min(Math.floor(Number(req.body.poll_interval)), 86400) : 60]);
   await audit(req, '新增外部连接', name);
   res.json({ ok: true, id: r.id, token });
 });
@@ -958,8 +967,19 @@ app.put('/api/ext/connections/:id', attach, need('vpn', 'rw'), async (req, res) 
   const fm = req.body.field_map === undefined ? t.field_map
     : JSON.stringify(req.body.field_map && typeof req.body.field_map === 'object' ? req.body.field_map : {});
   const note = req.body.note === undefined ? t.note : (str(req.body.note, 255) || null);
+  const pick = (v, cur, n) => v === undefined ? cur : (str(v, n) || null);
+  const baseToken = pick(req.body.base_token, t.base_token, 64);
+  const tableId = pick(req.body.table_id, t.table_id, 64);
+  const appId = pick(req.body.app_id, t.app_id, 64);
+  const secret = typeof req.body.app_secret === 'string' ? req.body.app_secret.trim() : '';
+  const secretEnc = secret ? encKey(secret) : (req.body.clear_secret ? null : t.app_secret_enc);
+  const pollEnabled = req.body.poll_enabled === undefined ? t.poll_enabled : (req.body.poll_enabled ? 1 : 0);
+  const pollInterval = req.body.poll_interval === undefined ? t.poll_interval
+    : (Number(req.body.poll_interval) > 0 ? Math.min(Math.floor(Number(req.body.poll_interval)), 86400) : 60);
   await q(`UPDATE ext_connection SET name=?,kind=?,enabled=?,field_map=?,note=?,
-             updated_at=${D.sql.now3} WHERE id=?`, [name, kind, enabled, fm, note, id]);
+             base_token=?,table_id=?,app_id=?,app_secret_enc=?,poll_enabled=?,poll_interval=?,
+             updated_at=${D.sql.now3} WHERE id=?`,
+    [name, kind, enabled, fm, note, baseToken, tableId, appId, secretEnc, pollEnabled ? 1 : 0, pollInterval, id]);
   await audit(req, '修改外部连接', name);
   res.json({ ok: true, token: t.token });
 });
@@ -1058,14 +1078,9 @@ app.post('/api/open/vpn-provision', async (req, res) => {
     const used = (await q(`SELECT vpn_ip FROM vpn_account`)).map(r => Number(String(r.vpn_ip).split('.')[3]) || 0);
     const ip = '10.100.0.' + ((used.length ? Math.max(...used) : 10) + 1);
 
-    const { priv, pub } = wgKeygen();
-    const pwd = randVpnPwd();
-    const ins = await D.run(`INSERT INTO vpn_account
-        (name, vpn_ip, note, pubkey, privkey, mode, full_proxy, login_enabled, pwd_enc)
-        VALUES (?,?,?,?,?,?,?,1,?)`,
-      [applicant, ip, note, pub, encKey(priv), mode, fullProxy, encKey(pwd)]);
-
-    /* 权限：支持 ID 数组、名称数组，或逗号分隔字符串 */
+    /* 权限：支持 ID 数组、名称数组，或逗号分隔字符串。
+       必须在建号之前解析：若申请了目的地但一个都匹配不上，应直接失败，
+       否则会建出一个「有账号、零权限」的空壳账号，用户以为开通了其实连不通。 */
     const resolve = async (rawList, kind) => {
       const ids = [];
       const arr = Array.isArray(rawList) ? rawList : (rawList ? String(rawList).split(',') : []);
@@ -1082,6 +1097,21 @@ app.post('/api/open/vpn-provision', async (req, res) => {
     };
     const pkgIds  = await resolve(pkgRaw, 'pkg');
     const poolIds = await resolve(poolRaw, 'pool');
+    const wantsGrants = (Array.isArray(pkgRaw) ? pkgRaw.length : !!pkgRaw)
+                     || (Array.isArray(poolRaw) ? poolRaw.length : !!poolRaw);
+    if (wantsGrants && !pkgIds.length && !poolIds.length) {
+      const msg = '申请的目的地在平台中不存在（权限包/目的地池未匹配，未开通）';
+      await logFail(1004, msg);
+      return out(1004, msg);
+    }
+
+    const { priv, pub } = wgKeygen();
+    const pwd = randVpnPwd();
+    const ins = await D.run(`INSERT INTO vpn_account
+        (name, vpn_ip, note, pubkey, privkey, mode, full_proxy, login_enabled, pwd_enc)
+        VALUES (?,?,?,?,?,?,?,1,?)`,
+      [applicant, ip, note, pub, encKey(priv), mode, fullProxy, encKey(pwd)]);
+
     for (const pid of pkgIds)
       await q(`${D.insertIgnore} INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [ins.id, 'pkg', pid]);
     for (const pid of poolIds)
@@ -1112,6 +1142,209 @@ app.post('/api/open/vpn-provision', async (req, res) => {
     console.error('[ext-provision]', msg);
     return out(1009, '开通失败：' + (msg || '内部错误'));
   }
+});
+
+/* ---------------- 飞书主动拉取（平台出站，无需公网入口） ----------------
+   思路：不要求飞书云端访问内网平台，改由平台定时用 tenant_access_token
+   读取多维表格里「审批状态=已通过」的记录，调用自己的开放接口建号，
+   再用 IM 接口把账号/IP/密码发给申请人。 */
+const FEISHU_API = process.env.FEISHU_API_BASE || 'https://open.feishu.cn/open-apis';
+const fsTokenCache = new Map();
+
+async function feishuToken(appId, secret){
+  const hit = fsTokenCache.get(appId);
+  if (hit && hit.exp > Date.now() + 60_000) return hit.token;
+  const r = await fetch(`${FEISHU_API}/auth/v3/tenant_access_token/internal`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ app_id: appId, app_secret: secret }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (j.code !== 0) throw new Error(`飞书鉴权失败：${j.msg || j.code}`);
+  fsTokenCache.set(appId, {
+    token: j.tenant_access_token,
+    exp: Date.now() + Math.max(60, (Number(j.expire) || 7200) - 120) * 1000,
+  });
+  return j.tenant_access_token;
+}
+
+async function fsCall(conn, path, init){
+  if (!conn.app_id || !conn.app_secret_enc) throw new Error('未配置飞书 App ID / Secret');
+  const tk = await feishuToken(conn.app_id, decKey(conn.app_secret_enc));
+  const opts = { method: (init && init.method) || 'GET' };
+  if (init && init.body) opts.body = init.body;
+  opts.headers = { Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json' };
+  const r = await fetch(FEISHU_API + path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (j.code !== 0) throw new Error(`飞书接口失败：${j.msg || j.code}`);
+  return j.data || {};
+}
+
+/* 飞书字段值可能是一段文本、数字、人员数组或对象，统一压成字符串 */
+function recText(v){
+  if (v == null) return '';
+  if (Array.isArray(v)) return v.map(recText).filter(Boolean).join(',');
+  if (typeof v === 'object') return v.name || v.text || v.value || v.id || '';
+  return String(v);
+}
+function recUser(v){
+  const a = Array.isArray(v) ? v[0] : v;
+  if (!a) return { open_id: '', name: '' };
+  return { open_id: a.id || a.open_id || '', name: a.name || a.en_name || '' };
+}
+
+async function feishuRecords(conn){
+  const out = []; let pt = '';
+  for (let i = 0; i < 20; i++) {
+    const d = await fsCall(conn,
+      `/bitable/v1/apps/${conn.base_token}/tables/${conn.table_id}/records?page_size=200`
+      + (pt ? `&page_token=${encodeURIComponent(pt)}` : ''));
+    out.push(...(d.items || []));
+    if (!d.has_more || !d.page_token) break;
+    pt = d.page_token;
+  }
+  return out;
+}
+async function feishuFieldNames(conn){
+  try {
+    const d = await fsCall(conn, `/bitable/v1/apps/${conn.base_token}/tables/${conn.table_id}/fields?page_size=200`);
+    return new Set((d.items || []).map(x => x.field_name || x.name).filter(Boolean));
+  } catch { return new Set(); }
+}
+async function feishuSendText(conn, openId, text){
+  if (!openId) return false;
+  await fsCall(conn, '/im/v1/messages?receive_id_type=open_id', {
+    method: 'POST',
+    body: JSON.stringify({ receive_id: openId, msg_type: 'text', content: JSON.stringify({ text }) }),
+  });
+  return true;
+}
+
+/* 处理单条已通过的申请 */
+async function pollOne(conn, rec, map, fieldNames){
+  const f = rec.fields || {};
+  const fRid = map.request_id || '申请编号';
+  const fApplicant = map.applicant || '申请人';
+  const fNote = map.note || '用途说明';
+  const fTarget = map.packages || 'VPN目标';
+
+  const rid = recText(f[fRid]).trim();
+  const who = recUser(f[fApplicant]);
+  if (!rid) return { skipped: 1 };
+  if (!who.name) return { skipped: 1 };
+
+  /* 已开通且已通知 -> 跳过；已开通但没通知（比如上次发消息失败）-> 只补发消息 */
+  const prev = await q1(`SELECT ok,notified FROM ext_provision_log WHERE conn_id=? AND request_id=?`,
+    [conn.id, rid]);
+  if (prev && prev.ok && prev.notified) return { skipped: 1 };
+
+  const body = {};
+  body[fRid] = rid;
+  body[fApplicant] = who.name;
+  const note = recText(f[fNote]);
+  if (note) body[fNote] = note.slice(0, 128);
+  const target = recText(f[fTarget]);
+  if (target) body[fTarget] = [target];
+
+  /* 复用开放接口：鉴权、字段映射、幂等、记录都在同一处 */
+  const r = await fetch(`http://127.0.0.1:${PORT}/api/open/vpn-provision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-App-Token': conn.token },
+    body: JSON.stringify(body),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!j || j.code !== 0) return { failed: 1, rid, reason: (j && j.message) || '调用开放接口失败' };
+
+  const text = `VPN 申请已开通\n申请人：${who.name}\nVPN 账号：${j.username}\nVPN IP：${j.vpn_ip}\n初始密码：${j.password}\n\n请导入客户端配置后登录，并尽快修改密码。`;
+  let notified = 0;
+  try { if (await feishuSendText(conn, who.open_id, text)) notified = 1; }
+  catch (e) { console.error('[ext-poll] 发消息失败', rid, e.message); }
+  await q(`UPDATE ext_provision_log SET notified=? WHERE conn_id=? AND request_id=?`,
+    [notified, conn.id, rid]).catch(() => {});
+
+  /* 回写：只在 Base 里已经存在这些字段时才写，不擅自改表结构 */
+  const upd = {};
+  if (fieldNames.has('VPN账号')) upd['VPN账号'] = j.username;
+  if (fieldNames.has('VPN IP')) upd['VPN IP'] = j.vpn_ip;
+  if (fieldNames.has('VPN账号/IP')) upd['VPN账号/IP'] = `${j.username} / ${j.vpn_ip}`;
+  if (Object.keys(upd).length) {
+    try {
+      await fsCall(conn, `/bitable/v1/apps/${conn.base_token}/tables/${conn.table_id}/records/${rec.record_id}`, {
+        method: 'PUT', body: JSON.stringify({ fields: upd }),
+      });
+    } catch (e) { console.error('[ext-poll] 回写失败', rid, e.message); }
+  }
+  return { created: 1 };
+}
+
+async function pollConnection(conn, dry){
+  if (!conn.base_token || !conn.table_id || !conn.app_id || !conn.app_secret_enc)
+    return { ok: false, message: '未配置完整的 Base / 应用凭据' };
+  const map = extMapOf(conn);
+  const fStatus = map.status || '审批状态';
+  const [records, fieldNames] = await Promise.all([feishuRecords(conn), feishuFieldNames(conn)]);
+  const approved = records.filter(r => recText((r.fields || {})[fStatus]) === '已通过');
+  /* dry-run：只统计将处理哪些单，不建号、不发消息（用于配置后先验证字段映射） */
+  if (dry) {
+    return {
+      ok: true, dry: true, total: records.length, approved: approved.length,
+      samples: approved.slice(0, 5).map(r => {
+        const f = r.fields || {};
+        return {
+          record_id: r.record_id,
+          request_id: recText(f[map.request_id || '申请编号']),
+          applicant: recUser(f[map.applicant || '申请人']).name,
+          target: recText(f[map.packages || 'VPN目标']),
+        };
+      }),
+    };
+  }
+  let created = 0, skipped = 0, failed = 0;
+  for (const rec of approved) {
+    try {
+      const x = await pollOne(conn, rec, map, fieldNames);
+      created += x.created || 0; skipped += x.skipped || 0; failed += x.failed || 0;
+    } catch (e) { failed++; console.error('[ext-poll]', rec.record_id, e.message); }
+  }
+  const msg = `通过 ${approved.length} / 新开 ${created} / 跳过 ${skipped} / 失败 ${failed}`;
+  await q(`UPDATE ext_connection SET last_poll_at=${D.sql.now3}, last_poll_msg=? WHERE id=?`,
+    [msg, conn.id]).catch(() => {});
+  return { ok: true, approved: approved.length, created, skipped, failed, message: msg };
+}
+
+async function pollTick(){
+  let conns = [];
+  try { conns = await q(`SELECT * FROM ext_connection WHERE poll_enabled=1`); }
+  catch { return; }
+  const now = Date.now();
+  for (const c of conns) {
+    const last = c.last_poll_at ? new Date(String(c.last_poll_at).replace(' ', 'T')).getTime() : 0;
+    if (now - last < Math.max(10, Number(c.poll_interval) || 60) * 1000) continue;
+    try {
+      await q(`UPDATE ext_connection SET last_poll_at=${D.sql.now3} WHERE id=?`, [c.id]);
+      await pollConnection(c);
+    } catch (e) { console.error('[ext-poll]', c.name, e.message); }
+  }
+}
+
+app.post('/api/ext/connections/:id/test', attach, need('vpn', 'rw'), async (req, res) => {
+  const c = await q1(`SELECT * FROM ext_connection WHERE id=?`, [Number(req.params.id)]);
+  if (!c) return res.status(404).json({ error: '连接不存在' });
+  try {
+    await feishuToken(c.app_id, decKey(c.app_secret_enc));
+    const tables = c.base_token
+      ? (await fsCall(c, `/bitable/v1/apps/${c.base_token}/tables?page_size=100`)).items || []
+      : [];
+    const records = c.table_id ? (await feishuRecords(c)).length : 0;
+    res.json({ ok: true, tables: tables.map(t => ({ id: t.table_id, name: t.name })), records,
+      message: c.table_id ? `连接正常，可读 ${records} 条记录` : '连接正常（未填 Table ID，未读记录）' });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/ext/connections/:id/poll', attach, need('vpn', 'rw'), async (req, res) => {
+  const c = await q1(`SELECT * FROM ext_connection WHERE id=?`, [Number(req.params.id)]);
+  if (!c) return res.status(404).json({ error: '连接不存在' });
+  try { res.json(await pollConnection(c, req.query.dry === '1')); }
+  catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 /* =====================================================================
@@ -1248,6 +1481,23 @@ async function initDb() {
     if (D.name === 'mysql' && (await D.columns('dest_pool')).includes('ip'))
       await D.run(`ALTER TABLE dest_pool MODIFY COLUMN ip VARCHAR(255) NOT NULL`);
   } catch (e) { console.error('[WARN] dest_pool.ip 加宽失败：', e.message); }
+  /* 外部连接：主动拉取飞书所需的列（老库补列，SQLite / MySQL 语法一致） */
+  try {
+    const cols = await D.columns('ext_connection');
+    const add = async (name, ddl) => { if (!cols.includes(name)) await D.run(`ALTER TABLE ext_connection ADD COLUMN ${ddl}`); };
+    await add('base_token', 'base_token VARCHAR(64) NULL');
+    await add('table_id', 'table_id VARCHAR(64) NULL');
+    await add('app_id', 'app_id VARCHAR(64) NULL');
+    await add('app_secret_enc', 'app_secret_enc VARCHAR(255) NULL');
+    await add('poll_enabled', 'poll_enabled TINYINT NOT NULL DEFAULT 0');
+    await add('poll_interval', 'poll_interval INT NOT NULL DEFAULT 60');
+    await add('last_poll_at', 'last_poll_at VARCHAR(32) NULL');
+    await add('last_poll_msg', 'last_poll_msg VARCHAR(255) NULL');
+  } catch (e) { console.error('[WARN] ext_connection 字段迁移失败：', e.message); }
+  try {
+    const cols = await D.columns('ext_provision_log');
+    if (!cols.includes('notified')) await D.run(`ALTER TABLE ext_provision_log ADD COLUMN notified TINYINT NOT NULL DEFAULT 0`);
+  } catch (e) { console.error('[WARN] ext_provision_log 字段迁移失败：', e.message); }
   /* 不设任何固定默认口令。未配置 ADMIN_INIT_PWD 时，admin 以「口令未设置」状态创建
      （pwd_hash 存空串），首次打开平台会引导在网页上设置口令。
      这样既避免"源码公开 ⇒ 后台口令公开"，也避免初始口令出现在日志/终端历史里。 */
@@ -1328,6 +1578,8 @@ async function initDb() {
       '\n       前端会提示「无法连接后端服务」；解决后执行 npm run init 并重启');
   }
   setInterval(() => A.sweepSessions(D).catch(() => {}), 3600_000).unref();
+  /* 外部连接主动拉取：每 15s 检查一次，各连接按自己的 poll_interval 节流 */
+  setInterval(() => { pollTick().catch(() => {}); }, 15_000).unref();
   app.listen(PORT, () => {
     console.log(`[ok] 后端已启动  http://127.0.0.1:${PORT}   （DB: ${D.name}${D.file ? ' · ' + D.file : ''}）`);
     console.log(`[ok] 会话策略：绝对 ${A.SESSION_HOURS}h / 空闲 ${A.IDLE_MINUTES}min`);
