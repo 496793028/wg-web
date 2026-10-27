@@ -986,8 +986,10 @@ body.theme-light .lp-glow{border-color:rgba(47,107,255,.75);
 .ext-sec-hd{display:flex;align-items:baseline;gap:9px;margin:16px 0 10px;padding-top:14px;
   border-top:1px solid var(--line);font-size:13px;font-weight:500;color:var(--txt)}
 .ext-sec-hd .sub{font-weight:400;font-size:11.5px;color:var(--faint)}
-.ext-test-row{display:flex;align-items:center;gap:9px;margin:-2px 0 14px;flex-wrap:wrap}
-.ext-test-row .sub{color:var(--faint);font-size:11.5px;line-height:1.5}
+/* 测试按钮行：与上方字段留出正间距。之前用 -2px 负边距会把按钮顶进输入框边框里 */
+.ext-test-row{display:flex;align-items:center;gap:9px;margin:10px 0 16px;flex-wrap:wrap}
+.ext-test-row .btn{flex:none}
+.ext-test-row .sub{color:var(--faint);font-size:11.5px;line-height:1.5;min-width:0}
 
 @media (max-width:760px){
   .modal.ext-wide{width:100%}
