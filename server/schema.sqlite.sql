@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS ext_connection (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT    NOT NULL,
   kind       TEXT    NOT NULL DEFAULT 'feishu',
+  mode       TEXT    NOT NULL DEFAULT 'pull',
   enabled    INTEGER NOT NULL DEFAULT 1,
   token      TEXT    NOT NULL,
   field_map  TEXT    NULL,

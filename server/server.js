@@ -930,7 +930,7 @@ async function extAudit(req, conn, act, target){
 }
 
 app.get('/api/ext/connections', attach, need('vpn', 'rw'), async (_req, res) => {
-  const rows = await q(`SELECT id,name,kind,enabled,token,field_map,note,
+  const rows = await q(`SELECT id,name,kind,mode,enabled,token,field_map,note,
       base_token,table_id,app_id,
       (app_secret_enc IS NOT NULL AND app_secret_enc<>'') AS has_secret,
       poll_enabled,poll_interval,last_poll_at,last_poll_msg,created_at,updated_at
@@ -942,13 +942,14 @@ app.post('/api/ext/connections', attach, need('vpn', 'rw'), async (req, res) => 
   const name = str(req.body.name, 64);
   if (!name) return bad(res, '连接名称必填');
   const kind = str(req.body.kind, 16) || 'feishu';
+  const mode = req.body.mode === 'push' ? 'push' : 'pull';
   const fm = JSON.stringify(req.body.field_map && typeof req.body.field_map === 'object' ? req.body.field_map : {});
   const token = extNewToken();
   const secret = typeof req.body.app_secret === 'string' ? req.body.app_secret.trim() : '';
   const r = await D.run(`INSERT INTO ext_connection
-      (name,kind,enabled,token,field_map,note,base_token,table_id,app_id,app_secret_enc,poll_enabled,poll_interval)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [name, kind, req.body.enabled === false ? 0 : 1, token, fm, str(req.body.note, 255) || null,
+      (name,kind,mode,enabled,token,field_map,note,base_token,table_id,app_id,app_secret_enc,poll_enabled,poll_interval)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [name, kind, mode, req.body.enabled === false ? 0 : 1, token, fm, str(req.body.note, 255) || null,
      str(req.body.base_token, 64) || null, str(req.body.table_id, 64) || null, str(req.body.app_id, 64) || null,
      secret ? encKey(secret) : null,
      req.body.poll_enabled ? 1 : 0,
@@ -963,6 +964,7 @@ app.put('/api/ext/connections/:id', attach, need('vpn', 'rw'), async (req, res) 
   if (!t) return res.status(404).json({ error: '连接不存在' });
   const name = str(req.body.name, 64) || t.name;
   const kind = str(req.body.kind, 16) || t.kind;
+  const mode = req.body.mode === 'push' ? 'push' : (req.body.mode === 'pull' ? 'pull' : (t.mode || 'pull'));
   const enabled = req.body.enabled === undefined ? t.enabled : (req.body.enabled ? 1 : 0);
   const fm = req.body.field_map === undefined ? t.field_map
     : JSON.stringify(req.body.field_map && typeof req.body.field_map === 'object' ? req.body.field_map : {});
@@ -976,10 +978,10 @@ app.put('/api/ext/connections/:id', attach, need('vpn', 'rw'), async (req, res) 
   const pollEnabled = req.body.poll_enabled === undefined ? t.poll_enabled : (req.body.poll_enabled ? 1 : 0);
   const pollInterval = req.body.poll_interval === undefined ? t.poll_interval
     : (Number(req.body.poll_interval) > 0 ? Math.min(Math.floor(Number(req.body.poll_interval)), 86400) : 60);
-  await q(`UPDATE ext_connection SET name=?,kind=?,enabled=?,field_map=?,note=?,
+  await q(`UPDATE ext_connection SET name=?,kind=?,mode=?,enabled=?,field_map=?,note=?,
              base_token=?,table_id=?,app_id=?,app_secret_enc=?,poll_enabled=?,poll_interval=?,
              updated_at=${D.sql.now3} WHERE id=?`,
-    [name, kind, enabled, fm, note, baseToken, tableId, appId, secretEnc, pollEnabled ? 1 : 0, pollInterval, id]);
+    [name, kind, mode, enabled, fm, note, baseToken, tableId, appId, secretEnc, pollEnabled ? 1 : 0, pollInterval, id]);
   await audit(req, '修改外部连接', name);
   res.json({ ok: true, token: t.token });
 });
@@ -1313,7 +1315,7 @@ async function pollConnection(conn, dry){
 
 async function pollTick(){
   let conns = [];
-  try { conns = await q(`SELECT * FROM ext_connection WHERE poll_enabled=1`); }
+  try { conns = await q(`SELECT * FROM ext_connection WHERE poll_enabled=1 AND mode='pull'`); }
   catch { return; }
   const now = Date.now();
   for (const c of conns) {
@@ -1485,6 +1487,7 @@ async function initDb() {
   try {
     const cols = await D.columns('ext_connection');
     const add = async (name, ddl) => { if (!cols.includes(name)) await D.run(`ALTER TABLE ext_connection ADD COLUMN ${ddl}`); };
+    await add('mode', "mode VARCHAR(8) NOT NULL DEFAULT 'pull'");
     await add('base_token', 'base_token VARCHAR(64) NULL');
     await add('table_id', 'table_id VARCHAR(64) NULL');
     await add('app_id', 'app_id VARCHAR(64) NULL');

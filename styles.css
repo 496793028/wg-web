@@ -982,6 +982,17 @@ body.theme-light .lp-glow{border-color:rgba(47,107,255,.75);
   padding:8px 10px;border-radius:9px;font-size:12.5px;outline:none;transition:border-color .2s,box-shadow .2s}
 .ext-map-row input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(76,141,255,.16)}
 
+/* 顶部模式切换：主动拉取 / 外部系统调用 */
+.ext-mode-tabs{display:inline-flex;gap:4px;padding:4px;margin-bottom:14px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:12px}
+.ext-mode{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border:none;border-radius:9px;
+  background:transparent;color:var(--dim);font-size:12.5px;font-family:inherit;cursor:pointer;
+  transition:background .2s,color .2s}
+.ext-mode svg{width:15px;height:15px;flex:none}
+.ext-mode:hover{color:var(--txt)}
+.ext-mode.on{background:var(--panel);color:var(--txt);box-shadow:0 1px 4px rgba(0,0,0,.18)}
+body.theme-light .ext-mode.on{box-shadow:0 1px 4px rgba(15,25,55,.10)}
+
 /* 分段标题：把「连接基本信息 / 飞书读取配置 / 字段映射」分开 */
 .ext-sec-hd{display:flex;align-items:baseline;gap:9px;margin:16px 0 10px;padding-top:14px;
   border-top:1px solid var(--line);font-size:13px;font-weight:500;color:var(--txt)}

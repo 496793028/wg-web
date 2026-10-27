@@ -153,6 +153,7 @@ CREATE TABLE IF NOT EXISTS ext_connection (
   id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name       VARCHAR(64)  NOT NULL COMMENT '连接名称，如「飞书 - VPN 申请」',
   kind       VARCHAR(16)  NOT NULL DEFAULT 'feishu' COMMENT '类型：feishu / other',
+  mode       VARCHAR(8)   NOT NULL DEFAULT 'pull' COMMENT '调用方式：pull=平台主动拉取 / push=外部系统调用平台',
   enabled    TINYINT      NOT NULL DEFAULT 1 COMMENT '1启用 0停用',
   token      VARCHAR(64)  NOT NULL COMMENT '外部系统调用凭据（X-App-Token）',
   field_map  TEXT         NULL COMMENT 'JSON：平台字段 -> 外部请求体字段名/Base 字段名',

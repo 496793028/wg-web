@@ -1177,6 +1177,8 @@ function grantListHTML(){
  *   - 独立字段映射：平台字段 -> 外部请求体里的字段名
  * 页面入口在顶栏（桌面 topstrip / 竖屏 mtop 同一位置）。
  */
+let extMode = 'pull';   // 'pull' = 平台主动拉取；'push' = 外部系统调用平台
+
 const EXT_MAP_ROWS = [
   ['request_id', '申请单号', 'recXXXX（必填）'],
   ['applicant',  '申请人姓名', '张三（必填）'],
@@ -1197,7 +1199,7 @@ function extCardHTML(c){
       <div class="ext-ico">${ICON.link}</div>
       <div style="min-width:0">
         <div class="ucard-name">${esc(c.name)}</div>
-        <div class="ucard-ip">${esc(c.kind === 'feishu' ? '飞书多维表格' : '其它系统')} · ${n} 项字段映射</div>
+        <div class="ucard-ip">${esc(c.kind === 'feishu' ? '飞书多维表格' : '其它系统')} · ${c.mode === 'push' ? '外部调用' : '主动拉取'} · ${n} 项映射</div>
       </div>
       <button class="am-switch ${c.enabled ? 'on' : ''}" data-act="ext-toggle" data-id="${c.id}"
         role="switch" aria-checked="${c.enabled ? 1 : 0}" type="button"><span class="am-knob"></span></button>
@@ -1216,44 +1218,34 @@ function extCardHTML(c){
 async function openExtConns(){
   try { const r = await api('GET', 'ext/connections'); S.extConns = r.rows || []; }
   catch (e) { toast(e.message, 'err'); return; }
-  const rows = S.extConns;
+  const isPull = extMode === 'pull';
+  const rows = S.extConns.filter(c => (c.mode || 'pull') === extMode);
   $('#layer').innerHTML = `<div class="modal-wrap" data-backdrop><div class="modal wide ext-wide">
     <div class="modal-hd"><h3>外部连接配置</h3><button class="icon-btn" data-close>×</button></div>
     <div class="modal-bd">
+      <div class="ext-mode-tabs">
+        <button class="ext-mode ${isPull ? 'on' : ''}" data-act="ext-mode" data-v="pull" type="button">
+          ${ICON.reload}<span>平台主动拉取</span></button>
+        <button class="ext-mode ${!isPull ? 'on' : ''}" data-act="ext-mode" data-v="push" type="button">
+          ${ICON.upload}<span>外部系统调用</span></button>
+      </div>
       <div class="ext-top">
-        <div class="ext-intro">外部系统调用 <code>POST /api/open/vpn-provision</code>，用 <code>X-App-Token</code> 识别连接。
-          每个连接有独立的令牌与字段映射；审批通过后由外部系统触发开通。</div>
+        <div class="ext-intro">${isPull
+          ? '平台定时读取多维表格中「审批状态 = 已通过」的记录，自动建号，并通过飞书消息把账号 / 密码发给申请人。'
+          : '外部系统（飞书自动化等）调用 <code>POST /api/open/vpn-provision</code>，用 <code>X-App-Token</code> 识别连接。要求外部系统能访问本平台地址。'}</div>
         <button class="btn primary sm" data-act="ext-new" type="button">+ 新增连接</button>
       </div>
       <div class="card-grid ext-grid">${
         rows.length ? rows.map(extCardHTML).join('')
-                    : '<div class="empty"><p>还没有外部连接，先新增一个</p></div>'}</div>
+                    : `<div class="empty"><p>${isPull ? '还没有主动拉取连接，先新增一个' : '还没有外部调用连接，先新增一个'}</p></div>`}</div>
     </div>
     <div class="modal-ft"><button class="btn" data-close type="button">关闭</button></div>
   </div></div>`;
   snapLayer();
 }
 
-function extFormHTML(c){
-  const map = c ? (c.field_map || {}) : {};
-  return `<div class="field"><label>连接名称</label>
-      <input id="extName" value="${esc(c ? c.name : '')}" maxlength="64"
-        placeholder="如：飞书 - VPN 申请"></div>
-    <div class="grid2">
-      <div class="field"><label>类型</label>
-        <select id="extKind">
-          <option value="feishu" ${!c || c.kind === 'feishu' ? 'selected' : ''}>飞书多维表格</option>
-          <option value="other" ${c && c.kind === 'other' ? 'selected' : ''}>其它系统</option>
-        </select></div>
-      <div class="field"><label>状态</label>
-        <select id="extEnabled">
-          <option value="1" ${!c || c.enabled ? 'selected' : ''}>启用</option>
-          <option value="0" ${c && !c.enabled ? 'selected' : ''}>停用</option>
-        </select></div>
-    </div>
-    <div class="field"><label>备注</label>
-      <input id="extNote" value="${esc(c ? (c.note || '') : '')}" maxlength="255" placeholder="可选"></div>
-    <div class="ext-sec-hd">飞书读取配置
+function extPullSection(c){
+  return `<div class="ext-sec-hd">飞书读取配置
       <span class="sub">平台主动拉取「已通过」的申请，无需公网入口</span></div>
     <div class="grid2">
       <div class="field"><label>App ID</label>
@@ -1280,7 +1272,40 @@ function extFormHTML(c){
     ${c ? `<div class="ext-test-row">
       <button class="btn sm" data-act="ext-test" data-id="${c.id}" type="button">测试连接</button>
       <button class="btn sm" data-act="ext-poll-dry" data-id="${c.id}" type="button">试运行（不建号）</button>
-      <span class="sub" id="extTestMsg">${esc(c.last_poll_msg || '')}</span></div>` : ''}
+      <span class="sub" id="extTestMsg">${esc(c.last_poll_msg || '')}</span></div>` : ''}`;
+}
+
+function extPushSection(){
+  const url = location.origin + '/api/open/vpn-provision';
+  return `<div class="ext-sec-hd">外部系统调用
+      <span class="sub">把下面的地址与令牌填到外部系统里</span></div>
+    <div class="field"><label>接口地址</label>
+      <div class="ext-token-row"><code>${esc(url)}</code>
+        <button class="icon-btn" data-act="ext-copy" data-token="${esc(url)}" type="button" title="复制">${ICON.copy}</button></div>
+      <div class="hint">该地址要求外部系统能访问本平台；飞书云端访问不到内网地址时，请改用「平台主动拉取」。</div></div>`;
+}
+
+function extFormHTML(c){
+  const map = c ? (c.field_map || {}) : {};
+  const isPull = (c ? (c.mode || 'pull') : extMode) === 'pull';
+  return `<div class="field"><label>连接名称</label>
+      <input id="extName" value="${esc(c ? c.name : '')}" maxlength="64"
+        placeholder="如：飞书 - VPN 申请"></div>
+    <div class="grid2">
+      <div class="field"><label>类型</label>
+        <select id="extKind">
+          <option value="feishu" ${!c || c.kind === 'feishu' ? 'selected' : ''}>飞书多维表格</option>
+          <option value="other" ${c && c.kind === 'other' ? 'selected' : ''}>其它系统</option>
+        </select></div>
+      <div class="field"><label>状态</label>
+        <select id="extEnabled">
+          <option value="1" ${!c || c.enabled ? 'selected' : ''}>启用</option>
+          <option value="0" ${c && !c.enabled ? 'selected' : ''}>停用</option>
+        </select></div>
+    </div>
+    <div class="field"><label>备注</label>
+      <input id="extNote" value="${esc(c ? (c.note || '') : '')}" maxlength="255" placeholder="可选"></div>
+    ${isPull ? extPullSection(c) : extPushSection()}
     ${c ? `<div class="field"><label>调用令牌（X-App-Token）</label>
       <div class="ext-token-row"><code id="extToken">${esc(c.token || '')}</code>
         <button class="btn sm" data-act="ext-copy" data-token="${esc(c.token || '')}" type="button">复制</button>
@@ -1288,7 +1313,7 @@ function extFormHTML(c){
       <div class="hint">重置后旧令牌立即失效，需要同步更新外部系统里的请求头。</div></div>`
       : `<div class="hint" style="margin:-4px 0 14px">保存后自动生成调用令牌。</div>`}
     <div class="ext-map-hd">字段映射
-      <span class="sub">右侧填外部请求体里的字段名；留空则用左侧的平台键名</span></div>
+      <span class="sub">右侧填${isPull ? '多维表格里的字段名' : '外部请求体里的字段名'}；留空则用左侧的平台键名</span></div>
     <div class="ext-map">
       ${EXT_MAP_ROWS.map(([k, label, ph]) => `<div class="ext-map-row">
         <div class="ext-map-k">${label}<span class="sub mono">${k}</span></div>
@@ -1331,6 +1356,9 @@ async function saveExtConn(el){
   };
   const sec = val('extSecret').trim();
   if (sec) body.app_secret = sec;
+  /* 调用方式跟着连接走：新建用当前 Tab，编辑保持原值 */
+  const cur = id ? (S.extConns || []).find(x => String(x.id) === String(id)) : null;
+  body.mode = cur ? (cur.mode || 'pull') : extMode;
   const id = el.dataset.id;
   try {
     if (id) await api('PUT', 'ext/connections/' + id, body);
@@ -1890,6 +1918,7 @@ const ACT = {
     else loadAudits().then(()=>refresh()); },
   /* ---- 外部连接配置 ---- */
   'ext-open': ()=>openExtConns(),
+  'ext-mode': el=>{ extMode = el.dataset.v === 'push' ? 'push' : 'pull'; openExtConns(); },
   'ext-new': ()=>openExtForm(null),
   'ext-edit': el=>openExtForm(el.dataset.id),
   'ext-back': ()=>openExtConns(),
