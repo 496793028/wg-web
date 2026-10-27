@@ -1968,6 +1968,10 @@ const ACT = {
       else toast(r.message || '拉取失败', 'err');
     } catch (e) { toast(e.message, 'err'); }
     finally { el.disabled = false; el.textContent = '立即拉取'; }
+    /* 拉取改变了 VPN 账号与开通记录：重载数据并刷新主页面，
+       否则要手动刷新才能看到新账号 */
+    await loadState().catch(() => {});
+    refresh();
     await openExtConns();
   },
   'fclear': ()=>{ ui.f={name:'',dst:'',port:'',act:'',days:''}; refresh(); loadLogs(); },
