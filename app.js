@@ -1209,6 +1209,7 @@ function extCardHTML(c){
         title="复制令牌" type="button">${ICON.copy}</button></div>
     <div class="ucard-ft"><span class="sub">${esc(c.note || '未填写备注')}</span>
       <div style="display:flex;gap:8px;flex:none">
+        ${(c.mode || 'pull') === 'pull' ? `<button class="btn sm" data-act="ext-poll-now" data-id="${c.id}" type="button">立即拉取</button>` : ''}
         <button class="btn sm" data-act="ext-edit" data-id="${c.id}" type="button">编辑</button>
         <button class="btn sm danger" data-act="ext-del" data-id="${c.id}" type="button">删除</button>
       </div></div>
@@ -1957,6 +1958,17 @@ const ACT = {
       if(box) box.textContent = msg;
       toast(msg);
     } catch (e) { if(box) box.textContent = e.message; toast(e.message, 'err'); }
+  },
+  /* 卡片上的「立即拉取」：真实执行（建号 + 发密码），不走定时任务 */
+  'ext-poll-now': async el=>{
+    el.disabled = true; el.textContent = '拉取中…';
+    try {
+      const r = await api('POST', 'ext/connections/' + el.dataset.id + '/poll');
+      if (r.ok) toast(`已通过 ${r.approved} / 新开 ${r.created} / 跳过 ${r.skipped} / 失败 ${r.failed}`);
+      else toast(r.message || '拉取失败', 'err');
+    } catch (e) { toast(e.message, 'err'); }
+    finally { el.disabled = false; el.textContent = '立即拉取'; }
+    await openExtConns();
   },
   'fclear': ()=>{ ui.f={name:'',dst:'',port:'',act:'',days:''}; refresh(); loadLogs(); },
   'csv': ()=>{

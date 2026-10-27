@@ -515,18 +515,31 @@ async function setItems(pkgId, ids) {
 app.post('/api/packages', attach, need('dest', 'rw'), async (req, res) => {
   const name = str(req.body.name, 64);
   if (!name) return bad(res, '包名称必填');
-  const r = await D.run(`INSERT INTO dest_package (name, descr) VALUES (?,?)`, [name, str(req.body.descr, 128) || null]);
-  await setItems(r.id, req.body.poolIds);
-  await audit(req, '新增目的地包', name);
-  res.json({ ok: true, id: r.id });
+  try {
+    const r = await D.run(`INSERT INTO dest_package (name, descr) VALUES (?,?)`, [name, str(req.body.descr, 128) || null]);
+    await setItems(r.id, req.body.poolIds);
+    await audit(req, '新增目的地包', name);
+    res.json({ ok: true, id: r.id });
+  } catch (e) {
+    /* 这里原来没有 try/catch：撞名时是 unhandledRejection，请求会一直挂着不返回 */
+    if (D.isDup(e)) return bad(res, '包名称已存在');
+    console.error('[packages]', e.message);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
 });
 app.put('/api/packages/:id', attach, need('dest', 'rw'), async (req, res) => {
   const id = Number(req.params.id);
-  await q(`UPDATE dest_package SET name=?, descr=? WHERE id=?`,
-    [str(req.body.name, 64), str(req.body.descr, 128) || null, id]);
-  await setItems(id, req.body.poolIds);
-  await audit(req, '修改目的地包', str(req.body.name, 64));
-  res.json({ ok: true });
+  try {
+    await q(`UPDATE dest_package SET name=?, descr=? WHERE id=?`,
+      [str(req.body.name, 64), str(req.body.descr, 128) || null, id]);
+    await setItems(id, req.body.poolIds);
+    await audit(req, '修改目的地包', str(req.body.name, 64));
+    res.json({ ok: true });
+  } catch (e) {
+    if (D.isDup(e)) return bad(res, '包名称已存在');
+    console.error('[packages]', e.message);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
 });
 app.delete('/api/packages/:id', attach, need('dest', 'rw'), async (req, res) => {
   const id = Number(req.params.id);
@@ -1085,20 +1098,29 @@ app.post('/api/open/vpn-provision', async (req, res) => {
        否则会建出一个「有账号、零权限」的空壳账号，用户以为开通了其实连不通。 */
     const resolve = async (rawList, kind) => {
       const ids = [];
+      let ambiguous = '';
       const arr = Array.isArray(rawList) ? rawList : (rawList ? String(rawList).split(',') : []);
       const table = kind === 'pool' ? 'dest_pool' : 'dest_package';
       for (const x of arr) {
         const s = String(x == null ? '' : x).trim();
         if (!s) continue;
-        const row = /^\d+$/.test(s)
-          ? await q1(`SELECT id FROM ${table} WHERE id=?`, [Number(s)])
-          : await q1(`SELECT id FROM ${table} WHERE name=?`, [s.slice(0, 64)]);
-        if (row && !ids.includes(row.id)) ids.push(row.id);
+        /* name 没有唯一约束：同名多条时不能随便挑一条，否则会把权限授给错误的对象 */
+        const rows = /^\d+$/.test(s)
+          ? await q(`SELECT id FROM ${table} WHERE id=?`, [Number(s)])
+          : await q(`SELECT id FROM ${table} WHERE name=?`, [s.slice(0, 64)]);
+        if (rows.length > 1) { ambiguous = s; break; }
+        if (rows.length && !ids.includes(rows[0].id)) ids.push(rows[0].id);
       }
-      return ids;
+      return { ids, ambiguous };
     };
-    const pkgIds  = await resolve(pkgRaw, 'pkg');
-    const poolIds = await resolve(poolRaw, 'pool');
+    const rp = await resolve(pkgRaw, 'pkg');
+    const rl = await resolve(poolRaw, 'pool');
+    if (rp.ambiguous || rl.ambiguous) {
+      const msg = `目的地名称「${rp.ambiguous || rl.ambiguous}」存在多条，无法确定授权对象`;
+      await logFail(1005, msg);
+      return out(1005, msg);
+    }
+    const pkgIds = rp.ids, poolIds = rl.ids;
     const wantsGrants = (Array.isArray(pkgRaw) ? pkgRaw.length : !!pkgRaw)
                      || (Array.isArray(poolRaw) ? poolRaw.length : !!poolRaw);
     if (wantsGrants && !pkgIds.length && !poolIds.length) {
@@ -1228,6 +1250,8 @@ async function pollOne(conn, rec, map, fieldNames){
   const fApplicant = map.applicant || '申请人';
   const fNote = map.note || '用途说明';
   const fTarget = map.packages || 'VPN目标';
+  /* 若另外配置了「目的地池」字段，也要一并带上；否则拉取模式永远只能授包 */
+  const fPools = map.pools && map.pools !== fTarget ? map.pools : '';
 
   const rid = recText(f[fRid]).trim();
   const who = recUser(f[fApplicant]);
@@ -1246,6 +1270,10 @@ async function pollOne(conn, rec, map, fieldNames){
   if (note) body[fNote] = note.slice(0, 128);
   const target = recText(f[fTarget]);
   if (target) body[fTarget] = [target];
+  if (fPools) {
+    const poolVal = recText(f[fPools]);
+    if (poolVal) body[fPools] = [poolVal];
+  }
 
   /* 复用开放接口：鉴权、字段映射、幂等、记录都在同一处 */
   const r = await fetch(`http://127.0.0.1:${PORT}/api/open/vpn-provision`, {
