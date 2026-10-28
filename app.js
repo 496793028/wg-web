@@ -1278,7 +1278,13 @@ function extPullSection(c){
           <option value="1" ${!c || c.writeback ? 'selected' : ''}>启用</option>
           <option value="0" ${c && !c.writeback ? 'selected' : ''}>停用</option>
         </select>
-        <div class="hint">开通成功后把用户名 / 密码 / VPN IP 写回这条申请。密码会明文存在表里，能看到这张表的人都能看到。</div></div>
+        <div class="hint">把用户名 / 密码写回这条申请。密码明文存在表里，能看到表的人都能看到。</div></div>
+      <div class="field"><label>发送飞书消息</label>
+        <select id="extNotify">
+          <option value="1" ${!c || c.notify ? 'selected' : ''}>启用</option>
+          <option value="0" ${c && !c.notify ? 'selected' : ''}>停用</option>
+        </select>
+        <div class="hint">开通 / 合并成功后，把账号与密码推送给申请人。</div></div>
     </div>
     ${c ? `<div class="ext-test-row">
       <button class="btn sm" data-act="ext-test" data-id="${c.id}" type="button">测试连接</button>
@@ -1366,6 +1372,7 @@ async function saveExtConn(el){
     poll_enabled: val('extPoll') === '1',
     poll_interval: Number(val('extPollInterval')) || 60,
     writeback: val('extWriteback') === '1',
+    notify: val('extNotify') === '1',
   };
   const sec = val('extSecret').trim();
   if (sec) body.app_secret = sec;

@@ -949,7 +949,7 @@ app.get('/api/ext/connections', attach, need('vpn', 'rw'), async (_req, res) => 
   const rows = await q(`SELECT id,name,kind,mode,enabled,token,field_map,note,
       base_token,table_id,app_id,
       (app_secret_enc IS NOT NULL AND app_secret_enc<>'') AS has_secret,
-      poll_enabled,poll_interval,writeback,last_poll_at,last_poll_msg,created_at,updated_at
+      poll_enabled,poll_interval,writeback,notify,last_poll_at,last_poll_msg,created_at,updated_at
     FROM ext_connection ORDER BY id DESC`);
   res.json({ rows: rows.map(r => ({ ...r, has_secret: !!r.has_secret, field_map: extMapOf(r) })) });
 });
@@ -963,14 +963,15 @@ app.post('/api/ext/connections', attach, need('vpn', 'rw'), async (req, res) => 
   const token = extNewToken();
   const secret = typeof req.body.app_secret === 'string' ? req.body.app_secret.trim() : '';
   const r = await D.run(`INSERT INTO ext_connection
-      (name,kind,mode,enabled,token,field_map,note,base_token,table_id,app_id,app_secret_enc,poll_enabled,poll_interval,writeback)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      (name,kind,mode,enabled,token,field_map,note,base_token,table_id,app_id,app_secret_enc,poll_enabled,poll_interval,writeback,notify)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [name, kind, mode, req.body.enabled === false ? 0 : 1, token, fm, str(req.body.note, 255) || null,
      str(req.body.base_token, 64) || null, str(req.body.table_id, 64) || null, str(req.body.app_id, 64) || null,
      secret ? encKey(secret) : null,
      req.body.poll_enabled ? 1 : 0,
      Number(req.body.poll_interval) > 0 ? Math.min(Math.floor(Number(req.body.poll_interval)), 86400) : 60,
-     req.body.writeback === false ? 0 : 1]);
+     req.body.writeback === false ? 0 : 1,
+     req.body.notify === false ? 0 : 1]);
   await audit(req, '新增外部连接', name);
   res.json({ ok: true, id: r.id, token });
 });
@@ -996,10 +997,11 @@ app.put('/api/ext/connections/:id', attach, need('vpn', 'rw'), async (req, res) 
   const pollInterval = req.body.poll_interval === undefined ? t.poll_interval
     : (Number(req.body.poll_interval) > 0 ? Math.min(Math.floor(Number(req.body.poll_interval)), 86400) : 60);
   const writeback = req.body.writeback === undefined ? t.writeback : (req.body.writeback ? 1 : 0);
+  const notify = req.body.notify === undefined ? t.notify : (req.body.notify ? 1 : 0);
   await q(`UPDATE ext_connection SET name=?,kind=?,mode=?,enabled=?,field_map=?,note=?,
-             base_token=?,table_id=?,app_id=?,app_secret_enc=?,poll_enabled=?,poll_interval=?,writeback=?,
+             base_token=?,table_id=?,app_id=?,app_secret_enc=?,poll_enabled=?,poll_interval=?,writeback=?,notify=?,
              updated_at=${D.sql.now3} WHERE id=?`,
-    [name, kind, mode, enabled, fm, note, baseToken, tableId, appId, secretEnc, pollEnabled ? 1 : 0, pollInterval, writeback ? 1 : 0, id]);
+    [name, kind, mode, enabled, fm, note, baseToken, tableId, appId, secretEnc, pollEnabled ? 1 : 0, pollInterval, writeback ? 1 : 0, notify ? 1 : 0, id]);
   await audit(req, '修改外部连接', name);
   res.json({ ok: true, token: t.token });
 });
@@ -1393,8 +1395,14 @@ async function pollOne(conn, rec, map, fieldNames){
 
   const text = `VPN 申请处理完成（${j.message}）\n申请人：${who.name}\nVPN 账号：${j.username}\nVPN IP：${j.vpn_ip}\n密码：${j.password}\n\n请导入客户端配置后登录，并尽快修改密码。`;
   let notified = 0;
-  try { if (await feishuSendText(conn, who.open_id, text)) notified = 1; }
-  catch (e) { console.error('[ext-poll] 发消息失败', rid, e.message); }
+  if (conn.notify) {
+    try { if (await feishuSendText(conn, who.open_id, text)) notified = 1; }
+    catch (e) { console.error('[ext-poll] 发消息失败', rid, e.message); }
+  } else {
+    /* 连接关闭了消息推送：直接标记为「无需推送」，
+       避免以后重新打开时把历史单子全部补发一遍 */
+    notified = 1;
+  }
   await q(`UPDATE ext_provision_log SET notified=? WHERE conn_id=? AND request_id=?`,
     [notified, conn.id, rid]).catch(() => {});
 
@@ -1640,6 +1648,7 @@ async function initDb() {
     await add('poll_enabled', 'poll_enabled TINYINT NOT NULL DEFAULT 0');
     await add('poll_interval', 'poll_interval INT NOT NULL DEFAULT 60');
     await add('writeback', 'writeback TINYINT NOT NULL DEFAULT 1');
+    await add('notify', 'notify TINYINT NOT NULL DEFAULT 1');
     await add('last_poll_at', 'last_poll_at VARCHAR(32) NULL');
     await add('last_poll_msg', 'last_poll_msg VARCHAR(255) NULL');
   } catch (e) { console.error('[WARN] ext_connection 字段迁移失败：', e.message); }
