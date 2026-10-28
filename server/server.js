@@ -1295,8 +1295,12 @@ async function pollOne(conn, rec, map, fieldNames){
   body[W.who] = who.name;
   const note = recText(f[F.note]);
   if (note) body[W.note] = note.slice(0, 128);
-  const target = recText(f[F.target]);
-  if (target) body[W.target] = [target];
+  /* VPN目标 已改为多选：字段值是选项对象数组，逐个展开提交，
+     开放接口的 resolve 会按名称逐个匹配目的地包 */
+  const tv = f[F.target];
+  const targets = (Array.isArray(tv) ? tv.map(recText)
+    : (tv == null ? [] : [recText(tv)])).filter(Boolean);
+  if (targets.length) body[W.target] = targets;
   if (fPools) {
     const poolVal = recText(f[fPools]);
     if (poolVal) body[wPools] = [poolVal];
