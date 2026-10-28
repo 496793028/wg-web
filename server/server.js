@@ -1443,37 +1443,67 @@ async function pollConnection(conn, dry){
     return { ok: false, message: '未配置完整的 Base / 应用凭据' };
   const map = extMapOf(conn);
   const fStatus = map.status || '审批状态';
+  const fRid = map.request_id || '申请编号';
+  const fApplicant = map.applicant || '申请人';
   const [records, fieldNames] = await Promise.all([feishuRecords(conn), feishuFieldNames(conn)]);
-  const approved = records.filter(r => recText((r.fields || {})[fStatus]) === '已通过');
+  const statusOf = r => recText((r.fields || {})[fStatus]);
+  /* 已通过 / 已驳回 都是「终态」：多条审批人时，谁先给出结论就按谁的结果处理，
+     之后无论状态再被改成什么，平台都不再改判（首次结论锁定）。 */
+  const decided = records.filter(r => {
+    const s = statusOf(r);
+    return s === '已通过' || s === '已驳回';
+  });
+  const approved = records.filter(r => statusOf(r) === '已通过');
   /* dry-run：只统计将处理哪些单，不建号、不发消息（用于配置后先验证字段映射） */
   if (dry) {
     return {
       ok: true, dry: true, total: records.length, approved: approved.length,
+      rejected: decided.length - approved.length,
       samples: approved.slice(0, 5).map(r => {
         const f = r.fields || {};
         return {
           record_id: r.record_id,
-          request_id: recText(f[map.request_id || '申请编号']),
-          applicant: recUser(f[map.applicant || '申请人']).name,
+          request_id: recText(f[fRid]),
+          applicant: recUser(f[fApplicant]).name,
           target: recText(f[map.packages || 'VPN目标']),
         };
       }),
     };
   }
-  let created = 0, skipped = 0, failed = 0;
+  let created = 0, skipped = 0, failed = 0, rejected = 0;
   const errs = [];
-  for (const rec of approved) {
+  for (const rec of decided) {
+    const st = statusOf(rec);
+    const recRid = recText((rec.fields || {})[fRid]).trim();
+    /* 首次结论锁定：已完整开通（含已通知）或已判定驳回的单，一律跳过 */
+    if (recRid) {
+      const seen = await q1(`SELECT ok,notified,code FROM ext_provision_log WHERE conn_id=? AND request_id=?`,
+        [conn.id, recRid]).catch(() => null);
+      if (seen && ((seen.ok && seen.notified) || Number(seen.code) === 2001)) { skipped++; continue; }
+    }
+    if (st !== '已通过') {
+      /* 驳回：落一条终态记录（code=2001），后续即使被改成「已通过」也不会再开通 */
+      if (recRid) {
+        await q(`${D.insertIgnore} INTO ext_provision_log
+            (conn_id,conn_name,request_id,applicant,vpn_id,vpn_ip,ok,code,message,duration_ms,notified)
+            VALUES (?,?,?,?,NULL,NULL,0,2001,?,0,1)`,
+          [conn.id, conn.name, recRid, recUser((rec.fields || {})[fApplicant]).name || null,
+           '审批驳回（以首次审批结果为准，后续不再处理）']).catch(() => {});
+      }
+      rejected++;
+      continue;
+    }
     try {
       const x = await pollOne(conn, rec, map, fieldNames);
       created += x.created || 0; skipped += x.skipped || 0; failed += x.failed || 0;
       if (x.failed) errs.push(`${x.rid || rec.record_id}：${x.reason || '未知原因'}`);
     } catch (e) { failed++; errs.push(`${rec.record_id}：${e.message}`); }
   }
-  const msg = `通过 ${approved.length} / 新开 ${created} / 跳过 ${skipped} / 失败 ${failed}`
+  const msg = `通过 ${approved.length} / 新开 ${created} / 跳过 ${skipped} / 驳回 ${rejected} / 失败 ${failed}`
     + (errs.length ? `；${errs.slice(0, 2).join('；')}` : '');
   await q(`UPDATE ext_connection SET last_poll_at=${D.sql.now3}, last_poll_msg=? WHERE id=?`,
     [msg, conn.id]).catch(() => {});
-  return { ok: true, approved: approved.length, created, skipped, failed, message: msg };
+  return { ok: true, approved: approved.length, rejected, created, skipped, failed, message: msg };
 }
 
 async function pollTick(){

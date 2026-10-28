@@ -1982,7 +1982,7 @@ const ACT = {
     el.disabled = true; el.textContent = '拉取中…';
     try {
       const r = await api('POST', 'ext/connections/' + el.dataset.id + '/poll');
-      if (r.ok) toast(`已通过 ${r.approved} / 新开 ${r.created} / 跳过 ${r.skipped} / 失败 ${r.failed}`);
+      if (r.ok) toast(`已通过 ${r.approved} / 新开 ${r.created} / 跳过 ${r.skipped} / 驳回 ${r.rejected || 0} / 失败 ${r.failed}`);
       else toast(r.message || '拉取失败', 'err');
     } catch (e) { toast(e.message, 'err'); }
     finally { el.disabled = false; el.textContent = '立即拉取'; }
