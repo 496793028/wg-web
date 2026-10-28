@@ -949,7 +949,7 @@ app.get('/api/ext/connections', attach, need('vpn', 'rw'), async (_req, res) => 
   const rows = await q(`SELECT id,name,kind,mode,enabled,token,field_map,note,
       base_token,table_id,app_id,
       (app_secret_enc IS NOT NULL AND app_secret_enc<>'') AS has_secret,
-      poll_enabled,poll_interval,last_poll_at,last_poll_msg,created_at,updated_at
+      poll_enabled,poll_interval,writeback,last_poll_at,last_poll_msg,created_at,updated_at
     FROM ext_connection ORDER BY id DESC`);
   res.json({ rows: rows.map(r => ({ ...r, has_secret: !!r.has_secret, field_map: extMapOf(r) })) });
 });
@@ -963,13 +963,14 @@ app.post('/api/ext/connections', attach, need('vpn', 'rw'), async (req, res) => 
   const token = extNewToken();
   const secret = typeof req.body.app_secret === 'string' ? req.body.app_secret.trim() : '';
   const r = await D.run(`INSERT INTO ext_connection
-      (name,kind,mode,enabled,token,field_map,note,base_token,table_id,app_id,app_secret_enc,poll_enabled,poll_interval)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      (name,kind,mode,enabled,token,field_map,note,base_token,table_id,app_id,app_secret_enc,poll_enabled,poll_interval,writeback)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [name, kind, mode, req.body.enabled === false ? 0 : 1, token, fm, str(req.body.note, 255) || null,
      str(req.body.base_token, 64) || null, str(req.body.table_id, 64) || null, str(req.body.app_id, 64) || null,
      secret ? encKey(secret) : null,
      req.body.poll_enabled ? 1 : 0,
-     Number(req.body.poll_interval) > 0 ? Math.min(Math.floor(Number(req.body.poll_interval)), 86400) : 60]);
+     Number(req.body.poll_interval) > 0 ? Math.min(Math.floor(Number(req.body.poll_interval)), 86400) : 60,
+     req.body.writeback === false ? 0 : 1]);
   await audit(req, '新增外部连接', name);
   res.json({ ok: true, id: r.id, token });
 });
@@ -994,10 +995,11 @@ app.put('/api/ext/connections/:id', attach, need('vpn', 'rw'), async (req, res) 
   const pollEnabled = req.body.poll_enabled === undefined ? t.poll_enabled : (req.body.poll_enabled ? 1 : 0);
   const pollInterval = req.body.poll_interval === undefined ? t.poll_interval
     : (Number(req.body.poll_interval) > 0 ? Math.min(Math.floor(Number(req.body.poll_interval)), 86400) : 60);
+  const writeback = req.body.writeback === undefined ? t.writeback : (req.body.writeback ? 1 : 0);
   await q(`UPDATE ext_connection SET name=?,kind=?,mode=?,enabled=?,field_map=?,note=?,
-             base_token=?,table_id=?,app_id=?,app_secret_enc=?,poll_enabled=?,poll_interval=?,
+             base_token=?,table_id=?,app_id=?,app_secret_enc=?,poll_enabled=?,poll_interval=?,writeback=?,
              updated_at=${D.sql.now3} WHERE id=?`,
-    [name, kind, mode, enabled, fm, note, baseToken, tableId, appId, secretEnc, pollEnabled ? 1 : 0, pollInterval, id]);
+    [name, kind, mode, enabled, fm, note, baseToken, tableId, appId, secretEnc, pollEnabled ? 1 : 0, pollInterval, writeback ? 1 : 0, id]);
   await audit(req, '修改外部连接', name);
   res.json({ ok: true, token: t.token });
 });
@@ -1319,17 +1321,22 @@ async function pollOne(conn, rec, map, fieldNames){
   await q(`UPDATE ext_provision_log SET notified=? WHERE conn_id=? AND request_id=?`,
     [notified, conn.id, rid]).catch(() => {});
 
-  /* 回写：只在 Base 里已经存在这些字段时才写，不擅自改表结构 */
-  const upd = {};
-  if (fieldNames.has('VPN账号')) upd['VPN账号'] = j.username;
-  if (fieldNames.has('VPN IP')) upd['VPN IP'] = j.vpn_ip;
-  if (fieldNames.has('VPN账号/IP')) upd['VPN账号/IP'] = `${j.username} / ${j.vpn_ip}`;
-  if (Object.keys(upd).length) {
-    try {
-      await fsCall(conn, `/bitable/v1/apps/${conn.base_token}/tables/${conn.table_id}/records/${rec.record_id}`, {
-        method: 'PUT', body: JSON.stringify({ fields: upd }),
-      });
-    } catch (e) { console.error('[ext-poll] 回写失败', rid, e.message); }
+  /* 回写：连接开启「writeback」且 Base 里已存在对应字段时才写（不擅自改表结构）。
+     密码是明文，谁能看这张表谁就能看到 —— 默认开，可按连接关闭。 */
+  if (conn.writeback) {
+    const upd = {};
+    if (fieldNames.has('用户名')) upd['用户名'] = j.username;
+    if (fieldNames.has('密码')) upd['密码'] = j.password;
+    if (fieldNames.has('VPN IP')) upd['VPN IP'] = j.vpn_ip;
+    if (fieldNames.has('VPN账号')) upd['VPN账号'] = j.username;
+    if (fieldNames.has('VPN账号/IP')) upd['VPN账号/IP'] = `${j.username} / ${j.vpn_ip}`;
+    if (Object.keys(upd).length) {
+      try {
+        await fsCall(conn, `/bitable/v1/apps/${conn.base_token}/tables/${conn.table_id}/records/${rec.record_id}`, {
+          method: 'PUT', body: JSON.stringify({ fields: upd }),
+        });
+      } catch (e) { console.error('[ext-poll] 回写失败', rid, e.message); }
+    }
   }
   return { created: 1 };
 }
@@ -1553,6 +1560,7 @@ async function initDb() {
     await add('app_secret_enc', 'app_secret_enc VARCHAR(255) NULL');
     await add('poll_enabled', 'poll_enabled TINYINT NOT NULL DEFAULT 0');
     await add('poll_interval', 'poll_interval INT NOT NULL DEFAULT 60');
+    await add('writeback', 'writeback TINYINT NOT NULL DEFAULT 1');
     await add('last_poll_at', 'last_poll_at VARCHAR(32) NULL');
     await add('last_poll_msg', 'last_poll_msg VARCHAR(255) NULL');
   } catch (e) { console.error('[WARN] ext_connection 字段迁移失败：', e.message); }

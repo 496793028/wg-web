@@ -1271,6 +1271,14 @@ function extPullSection(c){
       <div class="field"><label>间隔（秒）</label>
         <input id="extPollInterval" type="number" min="10" value="${c ? (c.poll_interval || 60) : 60}"></div>
     </div>
+    <div class="grid2">
+      <div class="field"><label>开通后回写表格</label>
+        <select id="extWriteback">
+          <option value="1" ${!c || c.writeback ? 'selected' : ''}>启用</option>
+          <option value="0" ${c && !c.writeback ? 'selected' : ''}>停用</option>
+        </select>
+        <div class="hint">开通成功后把用户名 / 密码 / VPN IP 写回这条申请。密码会明文存在表里，能看到这张表的人都能看到。</div></div>
+    </div>
     ${c ? `<div class="ext-test-row">
       <button class="btn sm" data-act="ext-test" data-id="${c.id}" type="button">测试连接</button>
       <button class="btn sm" data-act="ext-poll-dry" data-id="${c.id}" type="button">试运行（不建号）</button>
@@ -1356,6 +1364,7 @@ async function saveExtConn(el){
     table_id: val('extTableId').trim(),
     poll_enabled: val('extPoll') === '1',
     poll_interval: Number(val('extPollInterval')) || 60,
+    writeback: val('extWriteback') === '1',
   };
   const sec = val('extSecret').trim();
   if (sec) body.app_secret = sec;

@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS ext_connection (
   app_secret_enc VARCHAR(255) NULL COMMENT '飞书 App Secret（AES-256-GCM 加密）',
   poll_enabled TINYINT    NOT NULL DEFAULT 0 COMMENT '1=启用主动拉取',
   poll_interval INT       NOT NULL DEFAULT 60 COMMENT '拉取间隔（秒）',
+  writeback    TINYINT    NOT NULL DEFAULT 1 COMMENT '1=开通后回写用户名/密码到表格',
   last_poll_at VARCHAR(32) NULL,
   last_poll_msg VARCHAR(255) NULL,
   created_at DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
