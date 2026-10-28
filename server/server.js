@@ -1124,32 +1124,44 @@ app.post('/api/open/vpn-provision', async (req, res) => {
   }
 
   try {
-    /* 先解析目的地：新建与「同名合并」两条路径都要用 */
-    const resolve = async (rawList, kind) => {
-      const ids = [];
+    /* 目的地解析：
+       - 传**名称**：包和池两张表都查，同名则两者都授权（业务上「测试环境」既是池名也是包名时，
+         用户期望两组目的地都放行）。
+       - 传**数字 ID**：只在对应类型里找 —— ID 在两个命名空间里含义不同，不能跨表猜。
+       同一类型内重名：包有唯一索引不会发生；池可能，命中即报 1005，绝不随便挑一条。 */
+    const resolveTargets = async () => {
+      const pkgs = new Set(), pools = new Set();
       let ambiguous = '';
-      const arr = Array.isArray(rawList) ? rawList : (rawList ? String(rawList).split(',') : []);
-      const table = kind === 'pool' ? 'dest_pool' : 'dest_package';
-      for (const x of arr) {
-        const s = String(x == null ? '' : x).trim();
-        if (!s) continue;
-        /* name 没有唯一约束：同名多条时不能随便挑一条，否则会把权限授给错误的对象 */
-        const rows = /^\d+$/.test(s)
-          ? await q(`SELECT id FROM ${table} WHERE id=?`, [Number(s)])
-          : await q(`SELECT id FROM ${table} WHERE name=?`, [s.slice(0, 64)]);
-        if (rows.length > 1) { ambiguous = s; break; }
-        if (rows.length && !ids.includes(rows[0].id)) ids.push(rows[0].id);
-      }
-      return { ids, ambiguous };
+      const scan = async (rawList, kind) => {
+        const arr = Array.isArray(rawList) ? rawList : (rawList ? String(rawList).split(',') : []);
+        for (const x of arr) {
+          const s = String(x == null ? '' : x).trim();
+          if (!s) continue;
+          if (/^\d+$/.test(s)) {
+            const t = kind === 'pool' ? 'dest_pool' : 'dest_package';
+            const rows = await q(`SELECT id FROM ${t} WHERE id=?`, [Number(s)]);
+            if (rows.length) (kind === 'pool' ? pools : pkgs).add(rows[0].id);
+            continue;
+          }
+          const n = s.slice(0, 64);
+          const pr = await q(`SELECT id FROM dest_package WHERE name=?`, [n]);
+          const lr = await q(`SELECT id FROM dest_pool    WHERE name=?`, [n]);
+          if (pr.length > 1 || lr.length > 1) { ambiguous = n; return; }
+          if (pr.length) pkgs.add(pr[0].id);
+          if (lr.length) pools.add(lr[0].id);
+        }
+      };
+      await scan(pkgRaw, 'pkg');
+      if (!ambiguous) await scan(poolRaw, 'pool');
+      return { pkgs: [...pkgs], pools: [...pools], ambiguous };
     };
-    const rp = await resolve(pkgRaw, 'pkg');
-    const rl = await resolve(poolRaw, 'pool');
-    if (rp.ambiguous || rl.ambiguous) {
-      const msg = `目的地名称「${rp.ambiguous || rl.ambiguous}」存在多条，无法确定授权对象`;
+    const rt = await resolveTargets();
+    if (rt.ambiguous) {
+      const msg = `目的地名称「${rt.ambiguous}」存在多条，无法确定授权对象`;
       await logFail(1005, msg);
       return out(1005, msg);
     }
-    const pkgIds = rp.ids, poolIds = rl.ids;
+    const pkgIds = rt.pkgs, poolIds = rt.pools;
     const wantsGrants = (Array.isArray(pkgRaw) ? pkgRaw.length : !!pkgRaw)
                      || (Array.isArray(poolRaw) ? poolRaw.length : !!poolRaw);
     if (wantsGrants && !pkgIds.length && !poolIds.length) {
