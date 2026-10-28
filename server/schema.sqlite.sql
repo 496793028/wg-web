@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS vpn_account (
   status     INTEGER NOT NULL DEFAULT 1,
   login_enabled INTEGER NOT NULL DEFAULT 0,
   pwd_enc    TEXT    NULL,
+  owner_open_id TEXT NULL,
   last_login_at TEXT NULL,
   last_login_ip TEXT NULL,
   created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now','localtime'))

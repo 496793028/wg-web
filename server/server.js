@@ -1084,6 +1084,32 @@ app.post('/api/open/vpn-provision', async (req, res) => {
   /* 幂等：同一连接 + 同一申请单号只开一次；重放时从库里解密原口令返回，
      因此不需要在任何日志表里存明文。 */
   const prev = await q1(`SELECT * FROM ext_provision_log WHERE conn_id=? AND request_id=?`, [conn.id, rid]);
+
+  /* ---------------- 用户名解析与校验 ----------------
+     账号名可能来自申请单里可自由填写的字段（如邮箱前缀），必须当不可信输入处理：
+     归一化 + 白名单 + 保留字，避免非法字符进入配置/日志，或建出与系统身份混淆的账号。 */
+  const openId  = str(extPick(body, map, 'open_id'), 64);
+  const userRaw = String(extPick(body, map, 'username') || '').trim();
+  const RESERVED = new Set(['admin', 'root', 'system', 'administrator', 'operator',
+    'vpn', 'guest', 'test', 'support', 'null', 'undefined', 'sysadmin']);
+  let account = '';
+  if (userRaw) {
+    account = userRaw.toLowerCase();
+    if (!/^[a-z][a-z0-9._-]{1,30}[a-z0-9]$/.test(account) || RESERVED.has(account)) {
+      const msg = `用户名「${userRaw}」不合法：只允许 3-32 位小写字母/数字/点/下划线/连字符，且不能是保留字`;
+      await logFail(1007, msg);
+      return out(1007, msg);
+    }
+  } else {
+    /* 未提供 username：沿用申请人姓名（兼容旧调用，允许中文），仅做基本净化 */
+    account = applicant.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 64);
+    if (!account || RESERVED.has(account.toLowerCase())) {
+      const msg = `用户名「${account || applicant}」不可用（为空或为保留字）`;
+      await logFail(1007, msg);
+      return out(1007, msg);
+    }
+  }
+
   if (prev && prev.ok && prev.vpn_id) {
     const v = await q1(`SELECT name, vpn_ip, pwd_enc FROM vpn_account WHERE id=?`, [prev.vpn_id]);
     if (v) {
@@ -1140,8 +1166,17 @@ app.post('/api/open/vpn-provision', async (req, res) => {
       await logFail(1006, msg);
       return out(1006, msg);
     }
-    const exist = await q1(`SELECT * FROM vpn_account WHERE name=?`, [applicant]);
+    const exist = await q1(`SELECT * FROM vpn_account WHERE name=?`, [account]);
     if (exist) {
+      /* 归属校验：外部申请只能合并到「本人」创建的账号。
+         账号名可能来自可自由填写的字段（邮箱前缀等），若不校验，填别人的用户名
+         就能把授权并到他人账号上，并把他人密码解密返回给申请人 —— 属于凭据泄露。
+         历史上手工创建/改造前的账号 owner 为空，一律拒绝（宁可人工处理）。 */
+      if (!openId || !exist.owner_open_id || exist.owner_open_id !== openId) {
+        const msg = `用户名「${account}」已被占用，且无法确认属于申请人本人，未开通`;
+        await logFail(1008, msg);
+        return out(1008, msg);
+      }
       if (mode === 'deny') await q(`DELETE FROM vpn_grant WHERE vpn_id=?`, [exist.id]);
       for (const pid of pkgIds)
         await q(`${D.insertIgnore} INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [exist.id, 'pkg', pid]);
@@ -1152,7 +1187,7 @@ app.post('/api/open/vpn-provision', async (req, res) => {
       const dur = Date.now() - t0;
       const okMsg = mode === 'deny' ? '已切换为黑名单模式（授权重置）' : '账号已存在，权限已合并';
       await extAudit(req, conn, mode === 'deny' ? '外部连接开通：切换黑名单'
-        : '外部连接开通：合并授权', `${applicant} ${exist.vpn_ip}（包 ${pkgIds.length} / 池 ${poolIds.length}）`);
+        : '外部连接开通：合并授权', `${account}（${applicant}）${exist.vpn_ip}（包 ${pkgIds.length} / 池 ${poolIds.length}）`);
       if (prev) {
         await q(`UPDATE ext_provision_log SET conn_name=?,applicant=?,vpn_id=?,vpn_ip=?,
                    ok=1,code=0,message=?,duration_ms=?,notified=0 WHERE id=?`,
@@ -1177,9 +1212,9 @@ app.post('/api/open/vpn-provision', async (req, res) => {
     const { priv, pub } = wgKeygen();
     const pwd = randVpnPwd();
     const ins = await D.run(`INSERT INTO vpn_account
-        (name, vpn_ip, note, pubkey, privkey, mode, full_proxy, login_enabled, pwd_enc)
-        VALUES (?,?,?,?,?,?,?,1,?)`,
-      [applicant, ip, note, pub, encKey(priv), mode, fullProxy, encKey(pwd)]);
+        (name, vpn_ip, note, pubkey, privkey, mode, full_proxy, login_enabled, pwd_enc, owner_open_id)
+        VALUES (?,?,?,?,?,?,?,1,?,?)`,
+      [account, ip, note, pub, encKey(priv), mode, fullProxy, encKey(pwd), openId || null]);
 
     for (const pid of pkgIds)
       await q(`${D.insertIgnore} INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [ins.id, 'pkg', pid]);
@@ -1202,7 +1237,7 @@ app.post('/api/open/vpn-provision', async (req, res) => {
     }
     syncPeers(req).catch(() => {});
     return out(0, '开通成功', {
-      vpn_id: ins.id, username: applicant, vpn_ip: ip, password: pwd,
+      vpn_id: ins.id, username: account, vpn_ip: ip, password: pwd,
       replayed: false, duration_ms: dur
     });
   } catch (e) {
@@ -1300,6 +1335,7 @@ async function pollOne(conn, rec, map, fieldNames){
     note:   map.note       || '用途说明',
     target: map.packages   || 'VPN目标',
     perm:   map.perm       || '权限模式',
+    user:   map.username   || '期望用户名',
   };
   const W = {
     rid:    map.request_id || 'request_id',
@@ -1307,6 +1343,8 @@ async function pollOne(conn, rec, map, fieldNames){
     note:   map.note       || 'note',
     target: map.packages   || 'packages',
     perm:   map.perm       || 'perm',
+    user:   map.username   || 'username',
+    openId: map.open_id    || 'open_id',
   };
   /* 若另外配置了「目的地池」字段，也要一并带上；否则拉取模式永远只能授包 */
   const fPools = map.pools && map.pools !== F.target ? map.pools : '';
@@ -1324,7 +1362,10 @@ async function pollOne(conn, rec, map, fieldNames){
 
   const body = {};
   body[W.rid] = rid;
-  body[W.who] = who.name;
+  body[W.who] = who.name;                      // 申请人姓名：用于显示与消息称呼
+  if (who.open_id) body[W.openId] = who.open_id; // 归属校验与发消息都用它
+  const userName = recText(f[F.user]).trim();   // 期望用户名（如邮箱前缀）：作为 VPN 账号名
+  if (userName) body[W.user] = userName;
   const note = recText(f[F.note]);
   if (note) body[W.note] = note.slice(0, 128);
   /* VPN目标 已改为多选：字段值是选项对象数组，逐个展开提交，
@@ -1573,6 +1614,8 @@ async function initDb() {
     if (!cols.includes('mode'))    await D.run(`ALTER TABLE vpn_account ADD COLUMN mode VARCHAR(8) NOT NULL DEFAULT 'allow'`);
     if (!cols.includes('full_proxy')) await D.run(`ALTER TABLE vpn_account ADD COLUMN full_proxy INTEGER NOT NULL DEFAULT 0`);
     if (!cols.includes('client_token')) await D.run(`ALTER TABLE vpn_account ADD COLUMN client_token VARCHAR(64) NULL`);
+    /* 外部连接创建的账号记录归属人 open_id：二次申请只有本人才能合并，防止冒用他人账号名 */
+    if (!cols.includes('owner_open_id')) await D.run(`ALTER TABLE vpn_account ADD COLUMN owner_open_id VARCHAR(64) NULL`);
     /* 客户端登录凭据（与 VPN 配置同一行，一一绑定）：启停 / 口令 / 最近登录 */
     if (!cols.includes('login_enabled')) await D.run(`ALTER TABLE vpn_account ADD COLUMN login_enabled INTEGER NOT NULL DEFAULT 0`);
     if (!cols.includes('pwd_enc'))       await D.run(`ALTER TABLE vpn_account ADD COLUMN pwd_enc VARCHAR(255) NULL`);

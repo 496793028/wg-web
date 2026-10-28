@@ -1182,6 +1182,7 @@ let extMode = 'pull';   // 'pull' = 平台主动拉取；'push' = 外部系统�
 const EXT_MAP_ROWS = [
   ['request_id', '申请单号', 'recXXXX（必填）'],
   ['applicant',  '申请人姓名', '张三（必填）'],
+  ['username',   '用户名', 'zhang.san（留空则用申请人姓名）'],
   ['open_id',    '飞书 open_id', 'ou_xxx'],
   ['mode',       '模式', 'allow / deny'],
   ['full_proxy', '全代理', '0 / 1'],

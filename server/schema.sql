@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS vpn_account (
   status     TINYINT     NOT NULL DEFAULT 1,
   login_enabled TINYINT  NOT NULL DEFAULT 0 COMMENT '客户端登录启用：1=启用（可用姓名+口令登录），0=未启用（口令可为空）',
   pwd_enc    VARCHAR(255) NULL COMMENT '客户端登录口令：AES-256-GCM 加密存储。需可回显（管理员查看 / 随配置一并交付本人），故不使用单向散列',
+  owner_open_id VARCHAR(64) NULL COMMENT '外部连接创建时的申请人 open_id：二次申请只有本人可合并，防冒用他人账号名',
   last_login_at DATETIME(3) NULL COMMENT '客户端最近登录时间',
   last_login_ip VARCHAR(45) NULL COMMENT '客户端最近登录来源 IP',
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
