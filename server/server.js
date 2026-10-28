@@ -1096,19 +1096,7 @@ app.post('/api/open/vpn-provision', async (req, res) => {
   }
 
   try {
-    if (await q1(`SELECT id FROM vpn_account WHERE name=?`, [applicant])) {
-      const msg = `姓名「${applicant}」已存在，未重复创建`;
-      await logFail(1003, msg);
-      return out(1003, msg);
-    }
-
-    /* 自动分配下一个 10.100.0.x（与手工新增保持同一规则） */
-    const used = (await q(`SELECT vpn_ip FROM vpn_account`)).map(r => Number(String(r.vpn_ip).split('.')[3]) || 0);
-    const ip = '10.100.0.' + ((used.length ? Math.max(...used) : 10) + 1);
-
-    /* 权限：支持 ID 数组、名称数组，或逗号分隔字符串。
-       必须在建号之前解析：若申请了目的地但一个都匹配不上，应直接失败，
-       否则会建出一个「有账号、零权限」的空壳账号，用户以为开通了其实连不通。 */
+    /* 先解析目的地：新建与「同名合并」两条路径都要用 */
     const resolve = async (rawList, kind) => {
       const ids = [];
       let ambiguous = '';
@@ -1141,6 +1129,50 @@ app.post('/api/open/vpn-provision', async (req, res) => {
       await logFail(1004, msg);
       return out(1004, msg);
     }
+
+    /* 同名账号已存在：不再新建，走合并/重置。
+       - 黑名单（deny）：授权整体重置 —— deny 模式下授权清单就是屏蔽清单，
+         若做并集，屏蔽目标只会越积越多且无法解除；必须以最新一单为准。
+         且屏蔽清单不能为空：空清单 = 除名单外全通 = 等于全放行，属于危险配置。
+       - 默认/全代理（allow）：授权取并集（只增不减），mode/full_proxy 以最新一单为准。 */
+    if (mode === 'deny' && !pkgIds.length && !poolIds.length) {
+      const msg = '黑名单模式必须至少指定一个要屏蔽的目的地（空清单等于全放行，未开通）';
+      await logFail(1006, msg);
+      return out(1006, msg);
+    }
+    const exist = await q1(`SELECT * FROM vpn_account WHERE name=?`, [applicant]);
+    if (exist) {
+      if (mode === 'deny') await q(`DELETE FROM vpn_grant WHERE vpn_id=?`, [exist.id]);
+      for (const pid of pkgIds)
+        await q(`${D.insertIgnore} INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [exist.id, 'pkg', pid]);
+      for (const pid of poolIds)
+        await q(`${D.insertIgnore} INTO vpn_grant (vpn_id, kind, ref_id) VALUES (?,?,?)`, [exist.id, 'pool', pid]);
+      await q(`UPDATE vpn_account SET mode=?, full_proxy=? WHERE id=?`, [mode, fullProxy, exist.id]);
+
+      const dur = Date.now() - t0;
+      const okMsg = mode === 'deny' ? '已切换为黑名单模式（授权重置）' : '账号已存在，权限已合并';
+      await extAudit(req, conn, mode === 'deny' ? '外部连接开通：切换黑名单'
+        : '外部连接开通：合并授权', `${applicant} ${exist.vpn_ip}（包 ${pkgIds.length} / 池 ${poolIds.length}）`);
+      if (prev) {
+        await q(`UPDATE ext_provision_log SET conn_name=?,applicant=?,vpn_id=?,vpn_ip=?,
+                   ok=1,code=0,message=?,duration_ms=?,notified=0 WHERE id=?`,
+          [conn.name, applicant, exist.id, exist.vpn_ip, okMsg, dur, prev.id]);
+      } else {
+        await q(`${D.insertIgnore} INTO ext_provision_log
+            (conn_id,conn_name,request_id,applicant,vpn_id,vpn_ip,ok,code,message,duration_ms)
+            VALUES (?,?,?,?,?,?,1,0,?,?)`,
+          [conn.id, conn.name, rid, applicant, exist.id, exist.vpn_ip, okMsg, dur]);
+      }
+      syncPeers(req).catch(() => {});
+      return out(0, okMsg, {
+        vpn_id: exist.id, username: exist.name, vpn_ip: exist.vpn_ip,
+        password: vpnPwdOf(exist.pwd_enc) || '', replayed: false, duration_ms: dur
+      });
+    }
+
+    /* 自动分配下一个 10.100.0.x（与手工新增保持同一规则） */
+    const used = (await q(`SELECT vpn_ip FROM vpn_account`)).map(r => Number(String(r.vpn_ip).split('.')[3]) || 0);
+    const ip = '10.100.0.' + ((used.length ? Math.max(...used) : 10) + 1);
 
     const { priv, pub } = wgKeygen();
     const pwd = randVpnPwd();
@@ -1318,7 +1350,7 @@ async function pollOne(conn, rec, map, fieldNames){
   const j = await r.json().catch(() => ({}));
   if (!j || j.code !== 0) return { failed: 1, rid, reason: (j && j.message) || '调用开放接口失败' };
 
-  const text = `VPN 申请已开通\n申请人：${who.name}\nVPN 账号：${j.username}\nVPN IP：${j.vpn_ip}\n初始密码：${j.password}\n\n请导入客户端配置后登录，并尽快修改密码。`;
+  const text = `VPN 申请处理完成（${j.message}）\n申请人：${who.name}\nVPN 账号：${j.username}\nVPN IP：${j.vpn_ip}\n密码：${j.password}\n\n请导入客户端配置后登录，并尽快修改密码。`;
   let notified = 0;
   try { if (await feishuSendText(conn, who.open_id, text)) notified = 1; }
   catch (e) { console.error('[ext-poll] 发消息失败', rid, e.message); }
